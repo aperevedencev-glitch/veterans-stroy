@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Опросник СРО: договоры для НОСТРОЙ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: одна колонка анкеты, липкая полоса прогресса сверху, блоки по контурам 44/615 → 223 → техника */
+:root{
+  --bg:#f3f5f8; --paper:#ffffff; --ink:#18202c; --muted:#5b6575; --line:#d9dee6;
+  --accent:#1f4e8c; --accent-soft:#e3ecf7; --amber:#b86e00; --amber-soft:#fbf0de; --ok:#2d7a4b;
+  --brand-ink:#0f172a; --brand-accent:#6366f1;
+  --f-display:"PT Serif",Georgia,"Times New Roman",serif;
+  --f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#10151d; --paper:#18202b; --ink:#e6ebf2; --muted:#9aa5b5; --line:#2c3644;
+  --accent:#7fb0ee; --accent-soft:#1d2d44; --amber:#e8a33c; --amber-soft:#33281a; --ok:#6cc391; --brand-ink:#ffffff; --brand-accent:#06b6d4; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#10151d; --paper:#18202b; --ink:#e6ebf2; --muted:#9aa5b5; --line:#2c3644;
+  --accent:#7fb0ee; --accent-soft:#1d2d44; --amber:#e8a33c; --amber-soft:#33281a; --ok:#6cc391; --brand-ink:#ffffff; --brand-accent:#06b6d4; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--f-body);padding:0 16px}
+.wrap{max-width:780px;margin:0 auto;padding-block:28px 80px;display:flex;flex-direction:column;gap:22px}
+.hero{display:flex;gap:24px;align-items:center}
+.hero-text{flex:1;min-width:0}
+.brand{display:block;width:170px;max-width:100%;height:auto;margin-bottom:14px}
+.brand-word{fill:var(--brand-ink)}
+.brand-accent{fill:var(--brand-accent)}
+.robot{width:140px;max-width:100%;flex-shrink:0;overflow:visible}
+.robot .eyes{transform-origin:80px 63px;animation:blink 5s infinite}
+.robot .beacon{animation:pulse 2.4s ease-in-out infinite}
+@keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (max-width:560px){.hero{flex-direction:column-reverse;align-items:flex-start}.robot{width:96px}}
+@media (prefers-reduced-motion:reduce){.robot .eyes,.robot .beacon{animation:none}}
+header h1{font:700 clamp(24px,4.5vw,32px)/1.2 var(--f-display);margin:6px 0 10px;text-wrap:balance}
+.eyebrow{font:500 11px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lead{color:var(--muted);max-width:65ch;margin:0}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+.track{flex:1;height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.fill{height:100%;width:0;background:var(--accent);transition:width .25s}
+.count{font:500 12px var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:20px}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted)}
+input[type=text],input[type=date],textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;width:100%}
+textarea{min-height:68px;resize:vertical}
+input:focus-visible,textarea:focus-visible,button:focus-visible,.opt:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.goal{border-color:var(--amber);background:var(--amber-soft)}
+.goal .tag{color:var(--amber)}
+section.block{display:flex;flex-direction:column;gap:14px}
+section.block>h2{font:700 20px/1.3 var(--f-display);margin:12px 0 0;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+section.block>h2 .law{font:500 11px var(--f-mono);letter-spacing:.06em;color:var(--accent);background:var(--accent-soft);padding:3px 7px;border-radius:4px}
+.q{display:flex;flex-direction:column;gap:12px}
+.q h3{margin:0;font:600 16px/1.4 var(--f-body);display:flex;gap:10px}
+.q h3 .n{font:500 13px/1.7 var(--f-mono);color:var(--accent);min-width:2ch}
+.q.done h3 .n{color:var(--ok)}
+.why{margin:0;color:var(--muted);font-size:14px;max-width:65ch}
+.sub{font-size:13px;font-weight:600;margin:4px 0 -4px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:6px;padding:7px 11px;cursor:pointer;font-size:14px;background:var(--paper);user-select:none}
+.opt input{accent-color:var(--accent);margin:0}
+.opt:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+button{font:500 14px var(--f-body);border-radius:6px;padding:9px 16px;cursor:pointer;border:1px solid var(--line);background:var(--paper);color:var(--ink)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--paper)}
+.note{font-size:13px;color:var(--muted)}
+#out{font:13px/1.5 var(--f-mono);min-height:240px;background:var(--bg)}
+footer{font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.fill{transition:none}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="hero-text">
+      <svg class="brand" viewBox="0 0 200 60" role="img" aria-label="FlowLink">
+        <defs>
+          <linearGradient id="fl-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/>
+          </linearGradient>
+        </defs>
+        <g transform="translate(0, 6)">
+          <rect x="0" y="0" width="48" height="48" rx="12" fill="url(#fl-grad)"/>
+          <path d="M27 10 L16 26 L23 26 L21 38 L32 22 L25 22 Z" fill="#ffffff" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
+        </g>
+        <text x="62" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="26" font-weight="800" letter-spacing="-0.5" class="brand-word">Flow<tspan class="brand-accent">Link</tspan></text>
+      </svg>
+      <div class="eyebrow">309-ФЗ · сведения о договорах членов СРО</div>
+      <h1>Автоматизация передачи сведений о договорах в НОСТРОЙ</h1>
+      <p class="lead">Ответы на уточняющие вопросы по 44-ФЗ, 615-ПП и 223-ФЗ. Отметьте подходящий вариант и при необходимости допишите комментарий. В конце соберите ответы в текст и скопируйте его.</p>
+    </div>
+    <svg class="robot" viewBox="0 0 160 180" role="img" aria-label="Робот-помощник с планшетом">
+      <defs>
+        <linearGradient id="rb-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/>
+        </linearGradient>
+      </defs>
+      <!-- антенна -->
+      <line x1="80" y1="14" x2="80" y2="32" stroke="url(#rb-grad)" stroke-width="4" stroke-linecap="round"/>
+      <circle class="beacon" cx="80" cy="11" r="7" fill="#06b6d4"/>
+      <!-- уши -->
+      <rect x="22" y="56" width="12" height="28" rx="5" fill="#6366f1"/>
+      <rect x="126" y="56" width="12" height="28" rx="5" fill="#06b6d4"/>
+      <!-- голова -->
+      <rect x="32" y="30" width="96" height="78" rx="22" fill="url(#rb-grad)"/>
+      <rect x="44" y="44" width="72" height="44" rx="14" fill="#0f172a"/>
+      <g class="eyes">
+        <rect x="56" y="56" width="14" height="14" rx="7" fill="#ffffff"/>
+        <rect x="90" y="56" width="14" height="14" rx="7" fill="#ffffff"/>
+      </g>
+      <path d="M66 80 Q80 87 94 80" fill="none" stroke="#06b6d4" stroke-width="3" stroke-linecap="round"/>
+      <!-- корпус -->
+      <rect x="44" y="114" width="72" height="52" rx="16" fill="url(#rb-grad)"/>
+      <!-- планшет с галочками -->
+      <rect x="58" y="122" width="44" height="36" rx="5" fill="#ffffff"/>
+      <path d="M64 132 l3 3 l6 -6" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="77" y="130" width="19" height="3" rx="1.5" fill="#94a3b8"/>
+      <path d="M64 146 l3 3 l6 -6" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="77" y="144" width="15" height="3" rx="1.5" fill="#94a3b8"/>
+      <!-- руки -->
+      <rect x="30" y="120" width="16" height="30" rx="8" fill="#6366f1"/>
+      <rect x="114" y="120" width="16" height="30" rx="8" fill="#06b6d4"/>
+    </svg>
+  </header>
+
+  <div class="bar" aria-live="polite">
+    <div class="track"><div class="fill" id="fill"></div></div>
+    <div class="count" id="count">0 / 11</div>
+  </div>
+
+  <div class="card meta">
+    <label class="f">Организация (СРО)<input type="text" id="m_org" placeholder="Наименование СРО"></label>
+    <label class="f">Отвечает<input type="text" id="m_who" placeholder="ФИО, должность"></label>
+    <label class="f">Дата<input type="date" id="m_date"></label>
+  </div>
+
+  <form id="form" autocomplete="off"></form>
+
+  <section class="block" aria-labelledby="h-out">
+    <h2 id="h-out">Итог</h2>
+    <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      <div class="actions">
+        <button type="button" class="primary" id="build">Собрать ответы</button>
+        <button type="button" id="copy">Скопировать</button>
+        <button type="button" id="reset">Очистить форму</button>
+        <span class="note" id="status"></span>
+      </div>
+      <textarea id="out" readonly placeholder="Нажмите «Собрать ответы» — здесь появится текст для отправки."></textarea>
+    </div>
+  </section>
+
+  <footer>Черновик сохраняется в этом браузере. Вопросы подготовлены по переписке от 09.10.2026.</footer>
+</div>
+
+<script>
+const BLOCKS=[
+ {id:"g",title:"Главный вопрос",law:null,goal:true,qs:[
+  {n:"0",t:"Какая конечная цель автоматизации?",why:"От ответа зависит, стоит ли вообще заниматься 223-ФЗ.",
+   parts:[{type:"radio",opts:["Снять нагрузку с оператора СРО","Обеспечить 100% полноту данных для НОСТРОЙ","Обе цели в равной мере"]}]}
+ ]},
+ {id:"a",title:"Где данные уже есть",law:"44-ФЗ · 615-ПП",qs:[
+  {n:"1",t:"Откуда сейчас берутся данные?",why:"Если данные уже в учётной системе, задача сводится к настройке выгрузки. Ручной копипаст из ЕИС в Excel означает совсем другой объём работы.",
+   parts:[{type:"radio",opts:["Учётная система (1С, своя база)","Вручную: ЕИС → Excel","Смешанно","Не знаю"]},
+          {type:"radio",label:"Есть ли справочник ИНН членов и номеров извещений?",key:"b",opts:["Да","Частично","Нет"]}]},
+  {n:"2",t:"Какая глубина исторических данных нужна для НОСТРОЙ?",why:"С 1 марта 2027 года потребуются сведения и о договорах, заключённых до 1 марта 2026 года. Это влияет на архитектуру парсера.",
+   parts:[{type:"radio",opts:["Только текущие обязательства","Нужен исторический срез","Пока не определено"]},
+          {type:"text",label:"Если нужен срез — с какой даты?",key:"d"}]},
+  {n:"3",t:"Как сейчас выглядит процесс «узнали о договоре → передали в НОСТРОЙ»?",why:"Момент появления договора в ЕИС и срок, когда СРО обязана его отразить, различаются. Важно, кто запускает процесс.",
+   parts:[{type:"radio",opts:["Член СРО уведомляет сам","СРО сама мониторит ЕИС","И то, и другое","Процесса пока нет"]},
+          {type:"radio",label:"Есть ли Личный кабинет члена СРО?",key:"b",opts:["Да","Нет","В разработке"]}]},
+  {n:"4",t:"Какой доступ к данным ЕИС есть у СРО?",why:"Открытая часть позволяет парсинг, но не гарантирует полноту. Расширенные данные через ЭТП или агрегатор сильно упрощают задачу.",
+   parts:[{type:"radio",opts:["Только открытые данные","Через оператора ЭТП / агрегатор","Есть расширенный доступ","Не знаю"]},
+          {type:"text",label:"Какой агрегатор или ЭТП, если есть",key:"d"}]}
+ ]},
+ {id:"b",title:"Где данных нет",law:"223-ФЗ",qs:[
+  {n:"5",t:"Почему сейчас не собираются данные по 223-ФЗ?",why:"От причины зависит, что предлагать: обходное решение или отказ от задачи. Можно выбрать несколько.",
+   parts:[{type:"check",opts:["Нет ресурсов","Нет компетенций","Считаем нецелесообразным","Техническая невозможность"]}]},
+  {n:"6",t:"Обязаны ли члены СРО по внутреннему регламенту уведомлять о договорах по 223-ФЗ?",why:"Если да, автоматизацию можно строить на приёме уведомлений от членов с последующей проверкой, без парсинга ЕИС.",
+   parts:[{type:"radio",opts:["Да, обязанность есть","Нет","Планируем ввести"]}]},
+  {n:"7",t:"Готовы ли собирать данные по 223-ФЗ вручную?",why:"ЕИС не отдаёт сведения о поставщиках по 223-ФЗ в структурированном виде. Сопоставление по ИНН даже через агрегатор будет вероятностным и потребует ручной проверки.",
+   parts:[{type:"radio",opts:["Да, с ручной проверкой каждого совпадения","Полуручной процесс с агрегатором","Нет, 223-ФЗ вне зоны контроля"]}]}
+ ]},
+ {id:"c",title:"Технические вопросы",law:"оба контура",qs:[
+  {n:"8",t:"Какие системы и интеграции уже используются?",why:"От этого зависит, как строить передачу данных в НОСТРОЙ. Спецификацию API для СРО нужно согласовывать с техподдержкой НОСТРОЙ. Можно выбрать несколько.",
+   parts:[{type:"check",opts:["1С","Собственная база данных","Excel","Уже обсуждали API с НОСТРОЙ"]}]},
+  {n:"9",t:"Кто будет эксплуатировать парсер и что будет при сбое?",why:"ЕИС работает нестабильно. Автоматизация без мониторинга и оповещений превращается в отложенный ручной труд.",
+   parts:[{type:"radio",opts:["Штатный ИТ-специалист","Подрядчик","Оператор СРО","Не определено"]},
+          {type:"radio",label:"Нужны ли мониторинг и оповещения о сбоях?",key:"b",opts:["Да","Нет","Обсудить"]}]},
+  {n:"10",t:"Есть ли бюджет на поддержку парсера при изменениях ЕИС?",why:"При смене вёрстки или формата данных ЕИС парсер сломается. Нужны регулярные проверки и доработки.",
+   parts:[{type:"radio",opts:["Бюджет есть","Бюджета нет","Нужно оценить"]}]}
+ ]}
+];
+const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const form=document.getElementById("form");
+let html="";
+BLOCKS.forEach(b=>{
+  html+=`<section class="block"><h2>${b.title}${b.law?` <span class="law">${b.law}</span>`:""}</h2>`;
+  b.qs.forEach(q=>{
+    const qid="q"+q.n;
+    html+=`<div class="card q${b.goal?" goal":""}" id="${qid}"><h3><span class="n">${b.goal?"★":q.n}</span><span>${q.t}</span></h3><p class="why">${q.why}</p>`;
+    q.parts.forEach(p=>{
+      const key=qid+"_"+(p.key||"a");
+      if(p.label&&p.type!=="text")html+=`<div class="sub">${p.label}</div>`;
+      if(p.type==="text"){html+=`<label class="f">${p.label}<input type="text" id="${key}" name="${key}"></label>`;return}
+      html+=`<div class="opts" role="${p.type==="radio"?"radiogroup":"group"}">`;
+      p.opts.forEach((o,i)=>{html+=`<label class="opt"><input type="${p.type==="radio"?"radio":"checkbox"}" id="${key}_${i}" name="${key}" value="${esc(o)}">${o}</label>`});
+      html+=`</div>`;
+    });
+    html+=`<label class="f">Комментарий<textarea id="${qid}_c" name="${qid}_c" placeholder="Уточнения, факты, ссылки"></textarea></label></div>`;
+  });
+  html+=`</section>`;
+});
+form.innerHTML=html;
+
+const ALLQ=BLOCKS.flatMap(b=>b.qs);
+const fields=()=>[...document.querySelectorAll("input,textarea")].filter(e=>e.id&&e.id!=="out");
+function answered(q){const el=document.getElementById("q"+q.n);return[...el.querySelectorAll("input,textarea")].some(e=>(e.type==="radio"||e.type==="checkbox")?e.checked:e.value.trim())}
+function progress(){
+  let d=0;ALLQ.forEach(q=>{const a=answered(q);document.getElementById("q"+q.n).classList.toggle("done",a);if(a)d++});
+  document.getElementById("count").textContent=`${d} / ${ALLQ.length}`;
+  document.getElementById("fill").style.width=(d/ALLQ.length*100)+"%";
+}
+const KEY="sro-nostroy-draft";
+function save(){try{const s={};fields().forEach(e=>{s[e.id]=(e.type==="radio"||e.type==="checkbox")?e.checked:e.value});localStorage.setItem(KEY,JSON.stringify(s))}catch(_){}}
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY)||"null");if(!s)return;fields().forEach(e=>{if(!(e.id in s))return;if(e.type==="radio"||e.type==="checkbox")e.checked=s[e.id];else e.value=s[e.id]})}catch(_){}}
+document.addEventListener("input",e=>{if(e.target.id==="out")return;progress();save()});
+
+function build(){
+  const v=id=>document.getElementById(id).value.trim();
+  const L=[];
+  L.push("ОТВЕТЫ НА ВОПРОСЫ ПО АВТОМАТИЗАЦИИ ПЕРЕДАЧИ СВЕДЕНИЙ О ДОГОВОРАХ В НОСТРОЙ");
+  if(v("m_org"))L.push("Организация: "+v("m_org"));
+  if(v("m_who"))L.push("Отвечает: "+v("m_who"));
+  if(v("m_date"))L.push("Дата: "+v("m_date").split("-").reverse().join("."));
+  BLOCKS.forEach(b=>{
+    L.push("");L.push("— "+b.title.toUpperCase()+(b.law?" ("+b.law+")":"")+" —");
+    b.qs.forEach(q=>{
+      const qid="q"+q.n;
+      L.push("");L.push((b.goal?"":q.n+". ")+q.t);
+      q.parts.forEach(p=>{
+        const key=qid+"_"+(p.key||"a");
+        let val;
+        if(p.type==="text")val=v(key);
+        else val=[...document.querySelectorAll(`input[name="${key}"]:checked`)].map(e=>e.value).join("; ");
+        L.push("   "+(p.label?p.label+" ":"Ответ: ")+(val||"—"));
+      });
+      const c=v(qid+"_c");if(c)L.push("   Комментарий: "+c);
+    });
+  });
+  const out=document.getElementById("out");out.value=L.join("\n");out.style.height="auto";out.style.height=out.scrollHeight+"px";
+  return out;
+}
+const status=t=>{const s=document.getElementById("status");s.textContent=t;clearTimeout(status.t);status.t=setTimeout(()=>s.textContent="",3000)};
+document.getElementById("build").onclick=()=>{build();status("Текст собран")};
+document.getElementById("copy").onclick=()=>{
+  const out=build();
+  navigator.clipboard.writeText(out.value).then(()=>status("Скопировано в буфер обмена"),()=>{out.focus();out.select();status("Текст выделен — нажмите Ctrl+C")});
+};
+let armed=false;
+document.getElementById("reset").onclick=e=>{
+  if(!armed){armed=true;e.target.textContent="Точно очистить?";setTimeout(()=>{armed=false;e.target.textContent="Очистить форму"},3000);return}
+  armed=false;e.target.textContent="Очистить форму";
+  fields().forEach(f=>{if(f.type==="radio"||f.type==="checkbox")f.checked=false;else f.value=""});
+  document.getElementById("out").value="";try{localStorage.removeItem(KEY)}catch(_){}
+  progress();status("Форма очищена");
+};
+load();
+if(!document.getElementById("m_date").value)document.getElementById("m_date").value=new Date().toISOString().slice(0,10);
+progress();
+</script>
+</body>
+</html>
