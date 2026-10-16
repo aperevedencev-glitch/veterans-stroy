@@ -1,0 +1,91 @@
+# Настройки модуля передачи сведений о договорах из ЕИС в НОСТРОЙ.
+# Скопируйте в config.toml и заполните. Токен не храните в репозитории:
+# его можно задать переменной окружения EIS_TOKEN.
+
+[sro]
+name = "Ассоциация СРО «Стройкорпорация»"
+reg_number = "СРО-С-130-21122009"
+
+[paths]
+members = "data/members.xlsx"          # ИНН, наименование, дата уровня ОДО
+cache_dir = "data/cache"               # скачанные архивы ЕИС
+work_dir = "data/work"                 # найденные договоры (JSONL)
+output_dir = "data/out"                # выгрузки для оператора и НОСТРОЙ
+# Необязательные дополнительные источники (CSV/XLSX), см. README
+finpod_import = ""                     # выгрузка «Финподдержки»
+member_notices = ""                    # уведомления членов по регламенту
+nostroy_registry = ""                  # уже переданные в НОСТРОЙ сведения
+
+[period]
+# Начало периода сверки. Для конкурентных договоров модуль дополнительно
+# берёт дату уровня ОДО члена, но не ранее этой даты.
+competitive_from = "2017-07-01"
+noncompetitive_from = "2026-03-01"
+
+[eis]
+# Тип доступа: "IP" — физическое лицо, "LE" — юридическое лицо.
+access = "LE"
+token = ""                             # или переменная окружения EIS_TOKEN
+# Имя элемента токена в SOAP-заголовке и HTTP-заголовке при скачивании архива.
+# Для физлица по открытым примерам — individualPerson_token.
+# Для юрлица проверьте по Альбому ТФФ ЕИС.
+token_header = "individualPerson_token"
+mode = "PROD"
+timeout_sec = 60
+# Не более 5000 запросов в час на пользователя (инструкция ЕИС); держим запас.
+min_interval_sec = 1.5
+archive_retries = 6
+archive_retry_wait_sec = 20
+
+# Коды регионов заказчиков (как в ЕИС). Члены «Стройкорпорации» работают
+# в основном с заказчиками Москвы и Московской области.
+regions = ["50", "77"]
+
+[eis.endpoints]
+IP_44  = "https://int44.zakupki.gov.ru/eis-integration/services/getDocsIP"
+LE_44  = "https://int44.zakupki.gov.ru/eis-integration/services/getDocsLE"
+IP_223 = "https://int223.zakupki.gov.ru/eis-integration/services/getDocsIP"
+LE_223 = "https://int223.zakupki.gov.ru/eis-integration/services/getDocsLE"
+
+# Подсистемы и типы документов. Коды подсистем взяты из инструкции ЕИС:
+# RGK — реестр контрактов 44-ФЗ, RD615 — реестр договоров ПП РФ 615,
+# RD223 — реестр договоров 223-ФЗ. Типы документов сверьте с XSD сервиса
+# (getDocsIP-ws-api.xsd) перед запуском в работу.
+[[eis.feeds]]
+law = "44"
+endpoint_law = "44"
+subsystem = "RGK"
+document_types = ["contract"]
+
+[[eis.feeds]]
+law = "615"
+endpoint_law = "44"
+subsystem = "RD615"
+document_types = ["contract"]
+
+[[eis.feeds]]
+law = "223"
+endpoint_law = "223"
+subsystem = "RD223"
+document_types = ["contract"]
+
+[matching]
+date_tolerance_days = 3
+price_tolerance_pct = 1.0
+
+[alerts]
+# Оповещения о сбоях и итогах прогона. Оставьте пустым, чтобы отключить.
+telegram_bot_token = ""
+telegram_chat_id = ""
+smtp_host = ""
+smtp_port = 587
+smtp_user = ""
+smtp_password = ""
+email_to = ""
+
+[nostroy]
+# Спецификация API НОСТРОЙ для СРО пока не опубликована. До её получения
+# модуль готовит файлы для загрузки оператором (mode = "file").
+mode = "file"
+api_url = ""
+api_token = ""
