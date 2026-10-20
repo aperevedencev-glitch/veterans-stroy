@@ -94,8 +94,45 @@ Deno.serve(async (req) => {
   }
 
   // ---- оператор / робот ----
+  // ---- гостевой (демо) доступ: реальные данные одного члена, ответы не сохраняются ----
+  if (action === "demo_login" || action === "demo_respond") {
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count } = await db.from("sro_auth_log").select("id", { count: "exact", head: true }).eq("inn", "guest").eq("ok", false).gte("created_at", since);
+    if ((count ?? 0) >= 20) return json({ error: "Слишком много неверных попыток. Попробуйте через час." }, 429);
+    const code = String(b.code || "").trim().toUpperCase();
+    const { data: st } = await db.from("sro_settings").select("key,value").in("key", ["guest_code_hash", "demo_inn"]);
+    const cfg = Object.fromEntries((st ?? []).map((x) => [x.key, x.value]));
+    const ok = !!cfg.guest_code_hash && code.length >= 6 && (await sha256(code)) === cfg.guest_code_hash;
+    await db.from("sro_auth_log").insert({ inn: "guest", ok });
+    if (!ok) return json({ error: "Гостевой код не подходит." }, 401);
+    const { data: m } = await db.from("sro_members").select("inn,name,ogrn,lvl,liab").eq("inn", cfg.demo_inn).maybeSingle();
+    if (!m) return json({ error: "Демо-организация не настроена." }, 500);
+    const v = await memberView(m.inn);
+    return json({ demo: true, member: { ...m, email: "" }, contracts: v.contracts, responses: [] });
+  }
+
   if (action.startsWith("op_")) {
     if (!(await checkOp(req))) return json({ error: "Нужен ключ оператора." }, 401);
+    if (action === "op_overview") {
+      const { data: mem } = await db.from("sro_members").select("inn,name,ogrn,lvl,liab,email").order("name");
+      const cons: any[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data } = await db.from("sro_contracts").select("inn,reg,st,price").range(from, from + 999);
+        cons.push(...(data ?? [])); if (!data || data.length < 1000) break;
+      }
+      const { data: resp } = await db.from("sro_responses").select("inn,reg,answer,created_at").order("created_at").limit(10000);
+      const agg: Record<string, any> = {};
+      for (const c of cons) { const a = (agg[c.inn] ??= { n: 0, act: 0, sum: 0, ans: new Set(), last: "" }); a.n++; if (c.st === "active") { a.act++; a.sum += Number(c.price) || 0; } }
+      for (const r of resp ?? []) { const a = (agg[r.inn] ??= { n: 0, act: 0, sum: 0, ans: new Set(), last: "" }); if (r.reg) a.ans.add(r.reg); a.last = r.created_at; }
+      const members = (mem ?? []).map((m) => { const a = agg[m.inn] || { n: 0, act: 0, sum: 0, ans: new Set(), last: "" }; return { ...m, n: a.n, act: a.act, sum: a.sum, answered: a.ans.size, last: a.last }; });
+      return json({ members, responses: (resp ?? []).length });
+    }
+    if (action === "op_member") {
+      const inn = String(b.inn || "").replace(/\D/g, "");
+      const { data: m } = await db.from("sro_members").select("inn,name,ogrn,lvl,liab,email").eq("inn", inn).maybeSingle();
+      if (!m) return json({ error: "Нет такого члена СРО." }, 404);
+      return json({ member: m, ...(await memberView(inn)) });
+    }
     if (action === "op_responses") {
       const since = typeof b.since === "string" ? b.since : "1970-01-01";
       const { data } = await db.from("sro_responses").select("*").gt("created_at", since).order("created_at").limit(5000);

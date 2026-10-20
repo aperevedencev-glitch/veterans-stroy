@@ -103,11 +103,16 @@ label.f{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mu
   </section>
 
   <section class="card" id="login">
-    <h2>Вход</h2>
-    <p class="muted" style="margin:0">Код доступа пришёл в письме от СРО «Стройкорпорация». Если письма нет, позвоните в СРО — код выдадут заново.</p>
+    <div class="bar"><h2>Вход</h2>
+      <div class="seg" role="tablist" aria-label="Тип входа">
+        <button type="button" data-mode="member" aria-pressed="true">Член СРО</button>
+        <button type="button" data-mode="demo" aria-pressed="false">Гостевой доступ</button>
+        <button type="button" data-mode="op" aria-pressed="false">Для СРО</button>
+      </div></div>
+    <p class="muted" style="margin:0" id="lhint">Код доступа пришёл в письме от СРО «Стройкорпорация». Если письма нет, позвоните в СРО — код выдадут заново.</p>
     <form class="form" id="lf" autocomplete="on">
-      <label class="f">ИНН организации<input class="inp num" id="inn" inputmode="numeric" autocomplete="username" placeholder="10 или 12 цифр" required></label>
-      <label class="f">Код доступа<input class="inp num" id="code" autocomplete="current-password" placeholder="8 знаков" required style="text-transform:uppercase"></label>
+      <label class="f" id="innwrap">ИНН организации<input class="inp num" id="inn" inputmode="numeric" autocomplete="username" placeholder="10 или 12 цифр"></label>
+      <label class="f"><span id="codelbl">Код доступа</span><input class="inp num" id="code" autocomplete="current-password" placeholder="8 знаков" required></label>
       <button class="btn pri" id="lb" type="submit">Войти</button>
     </form>
     <div class="err" id="lerr" role="alert"></div>
@@ -125,15 +130,16 @@ label.f{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--mu
 
 <script>
 const API='https://wuvadreohiphwevprwmk.supabase.co/functions/v1/sro-terminal';
-const S={inn:'',code:'',member:null,contracts:[],last:{},draft:{},filt:'todo',email:'',news:[]};
+const S={mode:'member',inn:'',code:'',opkey:'',member:null,contracts:[],last:{},draft:{},filt:'todo',email:'',news:[],demo:false,ro:false,ov:null,q:''};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const rub=n=>Math.round(+n||0).toLocaleString('ru-RU');
 const dmy=s=>s? s.slice(8,10)+'.'+s.slice(5,7)+'.'+s.slice(0,4):'—';
 const ANS={yes:['Да, наш','p-yes'],no:['Не наш','p-no'],fix:['Исправлено','p-fix']};
 
-async function call(body){
-  const r=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+async function call(body,key){
+  const h={'content-type':'application/json'}; if(key) h['x-op-key']=key;
+  const r=await fetch(API,{method:'POST',headers:h,body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({error:'Сервер не ответил. Попробуйте ещё раз.'}));
   if(!r.ok||j.error) throw new Error(j.error||('Ошибка '+r.status));
   return j;
@@ -143,13 +149,44 @@ function load(j){
   (j.responses||[]).forEach(r=>{ if(r.reg) S.last[r.reg]=r });
   S.email=S.email||j.member.email||'';
 }
+const HINT={member:'Код доступа пришёл в письме от СРО «Стройкорпорация». Если письма нет, позвоните в СРО — код выдадут заново.',
+  demo:'Демонстрация для гостей: настоящие договоры одной организации из ЕИС. Ответы в демо-режиме никуда не отправляются.',
+  op:'Вход для сотрудников СРО: сводка по всем членам — кто ответил, кто нет. Нужен ключ оператора.'};
+function setMode(m){ S.mode=m; document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===m)));
+  $('#lhint').textContent=HINT[m]; $('#innwrap').hidden=m!=='member'; $('#inn').required=m==='member';
+  $('#codelbl').textContent=m==='member'?'Код доступа':m==='demo'?'Гостевой код':'Ключ оператора';
+  $('#code').placeholder=m==='member'?'8 знаков':m==='demo'?'например, DEMO-XXXX':'ключ из файла кодов'; $('#code').type=m==='op'?'password':'text'; $('#lerr').textContent=''; }
+document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+if(/^#(demo|guest)$/.test(location.hash)) setMode('demo'); else if(location.hash==='#sro') setMode('op');
 $('#lf').addEventListener('submit',async e=>{
   e.preventDefault(); $('#lerr').textContent=''; $('#lb').disabled=true; $('#lb').textContent='Проверяю…';
-  try{ S.inn=$('#inn').value.replace(/\D/g,''); S.code=$('#code').value.trim().toUpperCase();
-    load(await call({action:'login',inn:S.inn,code:S.code})); $('#login').hidden=true; $('#app').hidden=false; render(); window.scrollTo({top:0}); }
+  try{
+    if(S.mode==='member'){ S.inn=$('#inn').value.replace(/\D/g,''); S.code=$('#code').value.trim().toUpperCase();
+      if(!S.inn){ throw new Error('Введите ИНН организации.') }
+      S.demo=false; S.ro=false; load(await call({action:'login',inn:S.inn,code:S.code})); }
+    else if(S.mode==='demo'){ S.code=$('#code').value.trim().toUpperCase(); S.demo=true; S.ro=false; load(await call({action:'demo_login',code:S.code})); }
+    else { S.opkey=$('#code').value.trim(); S.ov=await call({action:'op_overview'},S.opkey); S.member=null; }
+    $('#login').hidden=true; $('#app').hidden=false; S.mode==='op'&&!S.member? renderOp() : render(); window.scrollTo({top:0}); }
   catch(err){ $('#lerr').textContent=err.message }
   finally{ $('#lb').disabled=false; $('#lb').textContent='Войти' }
 });
+
+function logout(){ Object.assign(S,{member:null,contracts:[],draft:{},news:[],code:'',opkey:'',ov:null,demo:false,ro:false}); $('#app').hidden=true; $('#login').hidden=false; $('#code').value=''; }
+function renderOp(){
+  const ms=(S.ov.members||[]).filter(m=>!S.q||(m.inn+' '+m.name).toLowerCase().includes(S.q.toLowerCase()));
+  const all=S.ov.members||[]; const withC=all.filter(m=>m.n>0); const ans=all.filter(m=>m.answered>0); const full=all.filter(m=>m.n>0&&m.answered>=m.n);
+  $('#app').innerHTML=`<section class="card">
+    <div class="bar"><div><h2>Сводка для СРО</h2><div class="muted" style="font-size:13px">Кто из членов СРО ответил в терминале. Нажмите на строку, чтобы открыть договоры и ответы организации.</div></div><button class="btn" id="out">Выйти</button></div>
+    <div class="sum"><div><span>Членов СРО</span><b>${all.length}</b></div><div><span>С договорами в ЕИС</span><b>${withC.length}</b></div><div><span>Уже ответили</span><b>${ans.length}</b></div><div><span>Ответили по всем</span><b>${full.length}</b></div><div><span>Всего ответов</span><b>${S.ov.responses}</b></div></div>
+    <input class="inp" id="oq" placeholder="Поиск по ИНН или названию" value="${esc(S.q)}">
+    <div style="overflow-x:auto;border:1px solid var(--line);border-radius:14px"><table style="border-collapse:collapse;width:100%;min-width:640px;font-size:14px">
+      <thead><tr style="text-align:left;color:var(--muted);font-size:12px"><th style="padding:8px 10px">Член СРО</th><th style="padding:8px 10px;text-align:right">Договоров</th><th style="padding:8px 10px;text-align:right">Действующих</th><th style="padding:8px 10px;text-align:right">Ответов</th><th style="padding:8px 10px">Последний ответ</th></tr></thead>
+      <tbody>${ms.map(m=>`<tr data-inn="${m.inn}" style="cursor:pointer;border-top:1px solid var(--line)"><td style="padding:8px 10px"><b>${esc(m.name)}</b><div class="dim num" style="font-size:12px">ИНН ${m.inn}${m.email?' · '+esc(m.email):''}</div></td><td class="num" style="padding:8px 10px;text-align:right">${m.n}</td><td class="num" style="padding:8px 10px;text-align:right">${m.act}</td><td style="padding:8px 10px;text-align:right">${m.answered? `<span class="pill ${m.answered>=m.n?'p-yes':'p-fix'}">${m.answered} из ${m.n}</span>`:'<span class="dim">—</span>'}</td><td class="num" style="padding:8px 10px">${m.last? dmy(m.last.slice(0,10)):'—'}</td></tr>`).join('')}</tbody></table></div>
+  </section>`;
+  $('#out').onclick=logout;
+  $('#oq').oninput=e=>{ S.q=e.target.value; const p=e.target.selectionStart; renderOp(); const n=$('#oq'); n.focus(); n.setSelectionRange(p,p) };
+  document.querySelectorAll('tr[data-inn]').forEach(tr=>tr.onclick=async()=>{ try{ load(await call({action:'op_member',inn:tr.dataset.inn},S.opkey)); S.ro=true; S.filt='all'; render(); window.scrollTo({top:0}) }catch(err){ $('#app').insertAdjacentHTML('afterbegin','<div class="err">'+esc(err.message)+'</div>') } });
+}
 
 function pending(){ return S.contracts.filter(c=>!S.last[c.reg]) }
 function render(){
@@ -159,23 +196,25 @@ function render(){
   const nd=Object.keys(S.draft).length;
   $('#app').innerHTML=`
   <section class="card">
-    <div class="bar"><div><h2>${esc(m.name)}</h2><div class="muted num" style="font-size:13px">ИНН ${m.inn} · ОГРН ${esc(m.ogrn||'')}</div></div><button class="btn" id="out">Выйти</button></div>
+    ${S.demo?'<div class="err" style="color:var(--warn)">Демонстрационный режим: это настоящие договоры организации из ЕИС, но ваши ответы никуда не отправляются.</div>':''}
+    ${S.ro?'<div class="muted" style="font-size:13px">Просмотр сотрудником СРО: ответы организации видны, менять их здесь нельзя.</div>':''}
+    <div class="bar"><div><h2>${esc(m.name)}</h2><div class="muted num" style="font-size:13px">ИНН ${m.inn} · ОГРН ${esc(m.ogrn||'')}</div></div><div class="ans">${S.ro?'<button class="btn" id="back">← Ко всем членам</button>':''}<button class="btn" id="out">Выйти</button></div></div>
     <div class="sum">
       <div><span>Договоров в ЕИС</span><b>${cs.length}</b></div>
       <div><span>Действующих</span><b>${act.length}</b></div>
       <div><span>Сумма действующих, ₽</span><b>${rub(act.reduce((a,c)=>a+(+c.price||0),0))}</b></div>
       <div><span>Ждут ответа</span><b>${pending().length}</b></div>
     </div>
-    <label class="f">Почта для связи по договорам<input class="inp" id="email" type="email" value="${esc(S.email)}" placeholder="name@company.ru"></label>
+    ${S.ro? (S.email?`<div class="muted">Почта для связи: <b>${esc(S.email)}</b></div>`:'') : `<label class="f">Почта для связи по договорам<input class="inp" id="email" type="email" value="${esc(S.email)}" placeholder="name@company.ru"></label>`}
   </section>
   <section class="card">
     <div class="bar"><h2>Договоры</h2>
       <div class="seg" role="group" aria-label="Фильтр">${[['todo','Ждут ответа'],['active','Действующие'],['all','Все']].map(([k,t])=>`<button data-f="${k}" aria-pressed="${S.filt===k}">${t}</button>`).join('')}</div></div>
     ${cs.length? '' : '<p class="muted" style="margin:0">В ЕИС не нашлось договоров вашей организации. Если договоры есть, добавьте их ниже.</p>'}
-    ${pending().length && S.filt==='todo' ? `<div><button class="btn" id="allyes">Все в списке — наши, данные верны</button></div>`:''}
+    ${!S.ro && pending().length && S.filt==='todo' ? `<div><button class="btn" id="allyes">Все в списке — наши, данные верны</button></div>`:''}
     ${shown.map(card).join('') || (cs.length? '<p class="muted" style="margin:0">По всем договорам ответ уже есть. Спасибо!</p>':'')}
   </section>
-  <section class="card">
+  ${S.ro?'':`<section class="card">
     <h2>Договора нет в списке?</h2>
     <p class="muted" style="margin:0">Добавьте договор, заключённый по итогам торгов (44-ФЗ, 223-ФЗ, ПП РФ 615), которого робот не нашёл.</p>
     ${S.news.map((n,i)=>`<div class="fix" style="border:1px solid var(--line);border-radius:14px;padding:12px">
@@ -188,7 +227,7 @@ function render(){
     <div><button class="btn" id="addnew">Добавить договор</button></div>
   </section>
   <div class="sticky"><span id="cnt">${nd||S.news.length? `Ответов к отправке: <b class="num">${nd+S.news.length}</b>`:'Отметьте договоры — кнопка отправит ответы в СРО'}</span>
-    <button class="btn pri" id="send" ${nd||S.news.length?'':'disabled'}>Отправить в СРО</button></div>
+    <button class="btn pri" id="send" ${nd||S.news.length?'':'disabled'}>${S.demo?'Отправить (демо)':'Отправить в СРО'}</button></div>`}
   <div class="err" id="serr" role="alert"></div>`;
   bind();
 }
@@ -199,11 +238,11 @@ function card(c){
     <div><div class="h"><span class="num">№ ${esc(c.reg)}</span><span>${esc(c.law)}</span><span class="pill ${c.st==='active'?'p-act':'p-done'}">${c.st==='active'?'действующий':'исполнен'}</span>${prev}</div>
       <div class="cu">${esc(c.cust)}</div><div class="ob">${esc(c.obj)}</div></div>
     <div class="pr"><b>${rub(c.price)} ₽</b><span class="dim" style="font-size:13px">${dmy(c.date)} — ${dmy(c.until)}</span></div>
-    <div class="ans" role="group" aria-label="Ответ по договору ${esc(c.reg)}">
+    ${S.ro?'':`<div class="ans" role="group" aria-label="Ответ по договору ${esc(c.reg)}">
       <button class="y" data-r="${c.reg}" data-a="yes" aria-pressed="${a==='yes'}">Да, наш</button>
       <button class="n" data-r="${c.reg}" data-a="no" aria-pressed="${a==='no'}">Не наш</button>
       <button class="x" data-r="${c.reg}" data-a="fix" aria-pressed="${a==='fix'}">Исправить</button>
-    </div>
+    </div>`}
     ${a==='fix'?`<div class="fix">
       <label class="f">Верная цена, ₽<input class="inp num" inputmode="decimal" data-r="${c.reg}" data-k="fix_price" value="${esc(d.fix_price||c.price)}"></label>
       <label class="f">Верная дата заключения<input class="inp" type="date" data-r="${c.reg}" data-k="fix_date" value="${esc(d.fix_date||c.date||'')}"></label>
@@ -212,22 +251,25 @@ function card(c){
   </article>`;
 }
 function bind(){
-  $('#out').onclick=()=>{ Object.assign(S,{member:null,contracts:[],draft:{},news:[],code:''}); $('#app').hidden=true; $('#login').hidden=false; $('#code').value='' };
-  $('#email').oninput=e=>S.email=e.target.value.trim();
+  $('#out').onclick=logout;
+  const bk=$('#back'); bk&&(bk.onclick=async()=>{ try{ S.ov=await call({action:'op_overview'},S.opkey) }catch(_){} S.member=null; renderOp(); window.scrollTo({top:0}) });
+  const em=$('#email'); em&&(em.oninput=e=>S.email=e.target.value.trim());
   document.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{S.filt=b.dataset.f; render()});
-  document.querySelectorAll('.ans button').forEach(b=>b.onclick=()=>{ const r=b.dataset.r,a=b.dataset.a; if(S.draft[r]?.answer===a) delete S.draft[r]; else { const c=S.contracts.find(x=>x.reg===r)||{}; S.draft[r]={...(S.draft[r]||{}),answer:a, ...(a==='fix'&&!S.draft[r]?.fix_price? {fix_price:c.price,fix_date:c.date||''}:{})}; } render(); });
+  document.querySelectorAll('.ans button[data-r]').forEach(b=>b.onclick=()=>{ const r=b.dataset.r,a=b.dataset.a; if(S.draft[r]?.answer===a) delete S.draft[r]; else { const c=S.contracts.find(x=>x.reg===r)||{}; S.draft[r]={...(S.draft[r]||{}),answer:a, ...(a==='fix'&&!S.draft[r]?.fix_price? {fix_price:c.price,fix_date:c.date||''}:{})}; } render(); });
   document.querySelectorAll('input[data-r]').forEach(i=>i.oninput=()=>{ S.draft[i.dataset.r][i.dataset.k]=i.value });
   document.querySelectorAll('[data-n]').forEach(i=>i.oninput=i.onchange=()=>{ S.news[+i.dataset.n][i.dataset.k]=i.value });
   const ay=$('#allyes'); ay&&(ay.onclick=()=>{ pending().forEach(c=>S.draft[c.reg]={answer:'yes'}); render() });
-  $('#addnew').onclick=()=>{ S.news.push({answer:'new',new_law:'44-ФЗ'}); render() };
-  $('#send').onclick=send;
+  const an=$('#addnew'); an&&(an.onclick=()=>{ S.news.push({answer:'new',new_law:'44-ФЗ'}); render() });
+  const sd=$('#send'); sd&&(sd.onclick=send);
 }
 async function send(){
   const items=[...Object.entries(S.draft).map(([reg,d])=>({reg,...d})), ...S.news.filter(n=>n.reg||n.new_cust).map(n=>({...n,answer:'new'}))];
   if(!items.length) return;
   $('#send').disabled=true; $('#send').textContent='Отправляю…'; $('#serr').textContent='';
-  try{ const j=await call({action:'respond',inn:S.inn,code:S.code,items,email:S.email}); load(j); const n=items.length; S.draft={}; S.news=[]; S.filt='todo'; render();
-    const box=document.createElement('section'); box.className='card'; box.innerHTML=`<div class="done"><img src="${$('#botimg').src}" alt=""><div><h2>Спасибо, ответы приняты</h2><p class="muted" style="margin:6px 0 0">Отправлено ответов: ${n}. СРО проверит их и передаст подтверждённые договоры в Единый реестр НОСТРОЙ.</p></div></div>`; $('#app').prepend(box); window.scrollTo({top:0,behavior:'smooth'});
+  try{ let j;
+    if(S.demo){ await new Promise(r=>setTimeout(r,600)); const now=new Date().toISOString(); items.forEach(it=>{ if(it.reg) S.last[it.reg]={...it,created_at:now} }); j=null; }
+    else { j=await call({action:'respond',inn:S.inn,code:S.code,items,email:S.email}); load(j); } const n=items.length; S.draft={}; S.news=[]; S.filt='todo'; render();
+    const box=document.createElement('section'); box.className='card'; box.innerHTML=`<div class="done"><img src="${$('#botimg').src}" alt=""><div><h2>Спасибо, ответы приняты</h2><p class="muted" style="margin:6px 0 0">${S.demo? `Так член СРО увидит подтверждение. В демо-режиме ${n} ответов никуда не отправлены.` : `Отправлено ответов: ${n}. СРО проверит их и передаст подтверждённые договоры в Единый реестр НОСТРОЙ.`}</p></div></div>`; $('#app').prepend(box); window.scrollTo({top:0,behavior:'smooth'});
   }catch(err){ $('#serr').textContent=err.message; $('#send').disabled=false; $('#send').textContent='Отправить в СРО' }
 }
 </script>
