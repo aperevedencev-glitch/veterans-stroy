@@ -230,11 +230,12 @@ body.strip .navonly{display:none!important}
 <div class="wrap">
   <div class="top">
     <div class="brandline"><b>FlowLink</b> · СРО «Стройкорпорация»</div>
+    <div class="tools"><a class="btn" id="guideLink" href="https://aperevedencev-glitch.github.io/veterans-stroy/sro-demo/guide.html" target="flowlink-guide" rel="noopener">Инструкция</a>
     <div class="tabs" role="tablist" aria-label="Разделы">
       <button type="button" role="tab" data-view="slides" aria-selected="true">Презентация</button>
       <button type="button" role="tab" data-view="robot" aria-selected="false">Робот</button>
       <button type="button" role="tab" data-view="term" aria-selected="false">Терминал члена СРО</button>
-    </div>
+    </div></div>
   </div>
   <div class="demo-note"><span><b>Демо-стенд</b> на настоящих данных ЕИС: 123 члена, 2 725 договоров. Письма не отправляются, ответы хранятся только в этом окне.</span><button class="btn sm" type="button" id="reset">Сбросить демо</button></div>
 
@@ -607,7 +608,7 @@ let VIEW='slides';
 function view(v){ VIEW=v; document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.view===v?'true':'false'));
   ['slides','robot','term'].forEach(x=>$('#v-'+x).hidden=x!==v);
   if(v==='robot') renderRobot(); if(v==='term') renderTerm(); if(v==='slides') requestAnimationFrame(fit);
-  try{history.replaceState(null,'', v==='slides'?'#s'+(si+1):'#'+v)}catch(_){}
+  try{history.replaceState(null,'', v==='slides'?'#s'+(si+1): v==='robot'?'#robot-'+R.st : '#terminal')}catch(_){}
   window.scrollTo(0,0) }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>view(b.dataset.view));
 document.addEventListener('click',e=>{const g=e.target.closest('[data-go]'); if(!g) return; const [v,a]=g.dataset.go.split(':');
@@ -630,7 +631,7 @@ function renderRobot(){
   counters(); renderLog();
   ({1:st1,2:st2,3:st3})[R.st]();
 }
-document.querySelectorAll('.st').forEach(b=>b.onclick=()=>{R.st=+b.dataset.st; renderRobot()});
+document.querySelectorAll('.st').forEach(b=>b.onclick=()=>{R.st=+b.dataset.st; try{history.replaceState(null,'','#robot-'+R.st)}catch(_){} renderRobot()});
 function renderLog(){ const el=$('#log'); if(!el) return; el.innerHTML = LOG.length? LOG.map(l=>`<div><time>${l.at}</time><span class="dim">${esc(l.who)}</span><span>${esc(l.t)}</span></div>`).join('') : '<div class="dim">Записей пока нет. Нажмите любую кнопку на станциях — действие появится здесь.</div>' }
 
 function st1(){
@@ -886,9 +887,15 @@ new ResizeObserver(fit).observe($('#deck')); window.addEventListener('resize',fi
 $('#reset').onclick=()=>{ init(); T.who=null; R.st=1; R.q=''; R.f='all'; toast('Демо сброшено к исходным данным'); if(VIEW==='robot') renderRobot(); if(VIEW==='term') renderTerm() };
 
 init();
-const h=location.hash; const mm=/^#s(\d+)$/.exec(h); if(mm) si=Math.min(N-1,Math.max(0,+mm[1]-1));
+function route(h){
+  let mm=/^#s(\d+)$/.exec(h); if(mm){ si=Math.min(N-1,Math.max(0,+mm[1]-1)); view('slides'); go(si); return }
+  mm=/^#robot(?:-([123]))?$/.exec(h); if(mm){ R.st=+(mm[1]||R.st||1); view('robot'); return }
+  mm=/^#(?:terminal|term)(?:-(member|demo|op))?$/.exec(h); if(mm){ if(mm[1]){ T.who=null; T.opSel=null; T.ltab=mm[1] } view('term'); return }
+  view('slides'); go(si) }
+const H0=location.hash;
 setStrip(window.innerWidth<700);
-if(h==='#robot') view('robot'); else if(h==='#terminal'||h==='#term') view('term'); else go(si);
+route(H0);
+window.addEventListener('hashchange',()=>{ $('#modal').hidden=true; route(location.hash) });
 </script>
 
 </body></html>
