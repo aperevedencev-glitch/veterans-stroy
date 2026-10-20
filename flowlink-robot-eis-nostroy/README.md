@@ -21,7 +21,7 @@
 
 ## Данные
 
-`data/members.json` — 123 члена СРО из Единого реестра НОСТРОЙ (выгрузка 19.10.2026) и 645 договоров из ЕИС по 46 проверенным организациям. Остальные члены в очереди: ЕИС ограничивает частоту запросов, дозагрузка идёт порциями.
+`data/members.json` — 123 члена СРО из Единого реестра НОСТРОЙ (выгрузка 19.10.2026) и договоры из ЕИС по всем 123 членам (выгрузка 19–20.10.2026). `eis_full.json` — полная выгрузка ЕИС и ClearSpending из Supabase, обновляется workflow «SRO EIS sync» (Actions → Run workflow).
 
 Формат записи: `inn, name, ogrn, lvl, odo, liab, eis ("checked" | "queue"), contracts[]`, где договор — `reg, law, st ("active" | "done"), cust, price, date, until, obj`.
 
