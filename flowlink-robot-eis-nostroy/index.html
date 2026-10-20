@@ -252,10 +252,13 @@ function viewChk(){
     return `<button class="mem" data-inn="${m.inn}" aria-current="${m.inn===S.sel}"><span class="nm">${esc(short(m.name))}</span><span class="ln"><span class="num">${m.inn}</span><span>${p? p+' ждут':'всё сверено'}${d? ' · '+d+' расх.':''}</span></span></button>`}).join('');
   const m=S.members[S.sel];
   $('#view').innerHTML=`<section class="panel">
-    <div class="ph"><div><h2>Сверка с контрагентом</h2><p>Сначала договоры подтверждает сам член СРО. Если он не согласен с суммой или датой, робот готовит запрос заказчику. Подтверждённые договоры уходят на станцию 3.</p></div></div>
+    <div class="ph"><div><h2>Сверка с контрагентом</h2><p>Сначала договоры подтверждает сам член СРО — письмом или в терминале члена СРО. Если он не согласен с суммой или датой, робот готовит запрос заказчику. Подтверждённые договоры уходят на станцию 3.</p></div>
+      <div class="tools"><button class="btn pri" id="pull">Забрать ответы из терминала</button><a class="btn" href="../sro-terminal/" target="_blank" rel="noopener" style="text-decoration:none">Открыть терминал</a></div></div>
+    ${S.newDeals&&S.newDeals.length? `<div class="note info">Члены СРО добавили в терминале договоры, которых нет в ЕИС: ${S.newDeals.length}. Последний: ${esc(S.newDeals[S.newDeals.length-1].text)}</div>`:''}
     ${ms.length? `<div class="grid2"><div class="list" aria-label="Члены СРО с договорами">${list}</div><div>${m? memberCard(m):''}</div></div>` : `<div class="empty">Договоров для сверки пока нет. Они появятся после выгрузки из ЕИС.</div>`}
   </section>`;
   document.querySelectorAll('.mem').forEach(b=>b.addEventListener('click',()=>{S.sel=b.dataset.inn; viewChk()}));
+  $('#pull')?.addEventListener('click',pullTerminal);
   bindCard();
 }
 function pendingOf(m){ return (m.contracts||[]).filter(c=>['new','asked_m','diff','asked_c'].includes(chk(c.reg).status)).length }
@@ -426,12 +429,44 @@ function renderLog(){ const el=$('#log'); if(!S.log.length){ el.innerHTML='<div 
 document.querySelectorAll('.st').forEach(b=>b.addEventListener('click',()=>{S.tab=b.dataset.tab; render()}));
 render();
 
+
+/* ---------- ответы из терминала члена СРО ---------- */
+const TERMINAL_API='https://wuvadreohiphwevprwmk.supabase.co/functions/v1/sro-terminal';
+function pullTerminal(){
+  openModal(`<h3>Ответы из терминала членов СРО</h3><p class="muted" style="margin:0">Введите ключ оператора (лист «Ключ оператора» в файле кодов доступа). Ключ запомнится в этом браузере.</p>
+    <label class="f">Ключ оператора<input class="inp num" id="opk" type="password" autocomplete="off" value="${esc(LS.get('opkey',''))}"></label>
+    <div class="tools" style="justify-content:flex-end"><button class="btn" id="pc">Отмена</button><button class="btn pri" id="pg">Забрать ответы</button></div><div class="dim" id="pres" style="font-size:12px"></div>`);
+  $('#pc').onclick=closeModal;
+  $('#pg').onclick=async()=>{ const key=$('#opk').value.trim(); if(key.length<16){ $('#pres').textContent='Ключ слишком короткий.'; return }
+    $('#pg').disabled=true; $('#pres').textContent='Забираю…';
+    try{ const r=await fetch(TERMINAL_API,{method:'POST',headers:{'content-type':'application/json','x-op-key':key},body:JSON.stringify({action:'op_responses',since:LS.get('pulledAt','1970-01-01')})});
+      const j=await r.json(); if(!r.ok||j.error) throw new Error(j.error||r.status);
+      LS.set('opkey',key); const n=await applyResponses(j); closeModal(); toast(n? `Применено ответов: ${n}`:'Новых ответов нет'); render();
+    }catch(e){ $('#pg').disabled=false; $('#pres').textContent='Не получилось: '+(e.message||e); }
+  };
+}
+async function applyResponses(j){
+  let n=0; const regs=new Set(allContracts().map(c=>c.reg)); S.newDeals=LS.get('newDeals',[]);
+  for(const e of (j.emails||[])){ const m=S.members[e.inn]; if(m&&e.email&&m.email!==e.email) await persistEmail(m,e.email); }
+  for(const r of (j.responses||[])){
+    const who='член СРО (терминал)';
+    if(r.answer==='new'){ S.newDeals.push({inn:r.inn,text:`${short(S.members[r.inn]?.name||r.inn)}: № ${r.reg||'—'}, ${r.new_cust||''}, ${r.new_law||''}, ${r.fix_price? rubFull(r.fix_price)+' ₽':''} ${r.fix_date? dmy(r.fix_date):''}`}); addLog(`Терминал: новый договор от ${short(S.members[r.inn]?.name||r.inn)} — № ${r.reg||'—'}`); n++; continue }
+    if(!regs.has(r.reg)) continue;
+    if(r.answer==='yes') await setCheck(r.reg,{status:'ok',who});
+    else if(r.answer==='no') await setCheck(r.reg,{status:'rejected',who,note:r.comment||''});
+    else if(r.answer==='fix') await setCheck(r.reg,{status:'diff',who,fix:{price:r.fix_price||0,date:r.fix_date||''},note:r.comment||''});
+    addLog(`Терминал: ${({yes:'подтверждён',no:'не наш',fix:'исправление'})[r.answer]} ${r.reg}`); n++;
+    if(r.created_at>LS.get('pulledAt','')) LS.set('pulledAt',r.created_at);
+  }
+  for(const r of (j.responses||[])) if(r.created_at>LS.get('pulledAt','')) LS.set('pulledAt',r.created_at);
+  LS.set('newDeals',S.newDeals); return n;
+}
 /* ---------- автономный режим (GitHub Pages, локальный файл) ---------- */
 async function standalone(){
   $('#dbchip').className='chip'; $('#dbchip span').textContent='Автономный режим'; $('#mailinfo').textContent='Почта: ваша почтовая программа';
   try{ const r=await fetch('data/members.json'); const arr=await r.json(); const em=LS.get('emails',{}); S.members={}; arr.forEach(m=>{ if(em[m.inn]) m.email=em[m.inn]; S.members[m.inn]=m }); }
   catch(e){ say('Не удалось загрузить data/members.json. Откройте страницу через веб-сервер или GitHub Pages.'); return }
-  S.checks=LS.get('checks',{}); S.log=LS.get('log',[]); render(); renderLog();
+  S.checks=LS.get('checks',{}); S.log=LS.get('log',[]); S.newDeals=LS.get('newDeals',[]); render(); renderLog();
 }
 /* ---------- подключение возможностей ---------- */
 (async()=>{
