@@ -1,0 +1,25 @@
+name: SRO EIS sync
+# Забирает выгрузку ЕИС и ClearSpending для СРО «Стройкорпорация» из Supabase (только открытые данные о контрактах)
+# и сохраняет её в flowlink-robot-eis-nostroy/data/eis_full.json.
+on:
+  workflow_dispatch:
+  push:
+    paths: ["flowlink-robot-eis-nostroy/data/sync.trigger"]
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download
+        run: |
+          curl -sSf --max-time 120 https://wuvadreohiphwevprwmk.supabase.co/functions/v1/sro-eis-sync -o /tmp/eis.json
+          python3 -c "import json;d=json.load(open('/tmp/eis.json'));print(len(d['rows']),len(d['cs']),len(d['sum']));json.dump(d,open('flowlink-robot-eis-nostroy/data/eis_full.json','w'),ensure_ascii=False,separators=(',',':'))"
+      - name: Commit
+        run: |
+          git config user.name "flowlink-robot"
+          git config user.email "robot@users.noreply.github.com"
+          git add flowlink-robot-eis-nostroy/data/eis_full.json
+          git diff --cached --quiet || git commit -m "Выгрузка ЕИС и ClearSpending из Supabase"
+          git push
