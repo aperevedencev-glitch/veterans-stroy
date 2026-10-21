@@ -79,7 +79,9 @@ regions = ["all"]
 law = "223"
 endpoint_law = "223"
 subsystem = "RD223"
-document_types = ["contract"]
+# contractCutted — публичная версия договора без сведений о поставщике
+# (так публикуется большинство договоров 223-ФЗ); оба типа есть в nsiDocumentTypes223.
+document_types = ["contract", "contractCutted"]
 # "wins" — только регионы заказчиков, у которых члены СРО побеждали по протоколам
 # (плюс регионы из [eis].regions). Так договоры 223-ФЗ грузятся вдвое быстрее.
 regions = ["wins"]
