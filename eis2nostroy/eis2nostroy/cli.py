@@ -21,7 +21,8 @@ from .export import write_operator_workbook
 from .members import load_members
 from .models import CONFIRMED, DECLARED, MISMATCH, PROBABLE
 from .nostroy import NostroyTransport
-from .parser import parse_archive
+from .parser import scan_archive
+from .protocols import WinIndex, WinStore, unlinked_wins
 from .reconcile import reconcile
 from .sources import ContractStore, load_table_source
 
@@ -32,6 +33,10 @@ def _store(cfg: Config) -> ContractStore:
     return ContractStore((cfg.path("work_dir") or Path("data/work")) / "eis_contracts.jsonl")
 
 
+def _wins(cfg: Config) -> WinStore:
+    return WinStore((cfg.path("work_dir") or Path("data/work")) / "protocol_wins.jsonl")
+
+
 def _days(start: date, end: date):
     d = start
     while d <= end:
@@ -40,39 +45,64 @@ def _days(start: date, end: date):
 
 
 def cmd_fetch(cfg: Config, start: date, end: date) -> tuple[int, list[str]]:
+    """Сначала протоколы за весь период, потом договоры.
+
+    Договор 223-ФЗ без поставщика связывается с членом СРО через протокол,
+    поэтому к разбору договоров победы из протоколов уже должны быть известны.
+    """
     members = load_members(cfg.path("members"))
     inns = set(members)
     client = EisClient(cfg)
-    store = _store(cfg)
-    found, errors = 0, []
-    for day in _days(start, end):
-        for feed in cfg.feeds:
-            for region in cfg.regions:
+    store, wins_store = _store(cfg), _wins(cfg)
+    found, wins_found, errors = 0, 0, []
+    feeds = sorted(cfg.feeds, key=lambda f: 0 if f.kind == "protocol" else 1)
+    index = None
+    for feed in feeds:
+        if feed.kind != "protocol" and index is None:
+            index = WinIndex(wins_store.load())
+        for day in _days(start, end):
+            for region in cfg.feed_regions(feed):
                 try:
                     for archive in client.fetch_day(feed, region, day):
-                        found += store.add(parse_archive(archive, feed.law, inns))
+                        contracts, wins = scan_archive(archive, feed.law, inns, index)
+                        found += store.add(contracts)
+                        wins_found += wins_store.add(wins)
                 except (EisError, OSError) as exc:
                     msg = f"{day} {feed.subsystem} регион {region}: {exc}"
                     log.error(msg)
                     errors.append(msg)
-    log.info("Новых договоров членов: %s, ошибок: %s", found, len(errors))
+    log.info("Новых договоров членов: %s, побед по протоколам: %s, ошибок: %s", found, wins_found, len(errors))
     return found, errors
 
 
 def cmd_import_archives(cfg: Config, law: str, folder: Path) -> int:
-    """Разбор архивов, скачанных заранее (например, история за прошлые годы)."""
+    """Разбор архивов, скачанных заранее (например, история за прошлые годы).
+
+    Протоколы и договоры можно класть в одну папку: модуль проходит её дважды —
+    сначала собирает победы, потом связывает с ними договоры.
+    """
     inns = set(load_members(cfg.path("members")))
-    store = _store(cfg)
+    store, wins_store = _store(cfg), _wins(cfg)
+    zips = sorted(Path(folder).rglob("*.zip"))
+    wins_total = 0
+    if law == "223":
+        for z in zips:
+            wins_total += wins_store.add(scan_archive(z, law, inns)[1])
+    index = WinIndex(wins_store.load()) if law == "223" else None
     total = 0
-    for z in sorted(Path(folder).rglob("*.zip")):
-        total += store.add(parse_archive(z, law, inns))
-    log.info("Из архивов добавлено договоров: %s", total)
+    for z in zips:
+        total += store.add(scan_archive(z, law, inns, index)[0])
+    log.info("Из архивов добавлено договоров: %s, побед по протоколам: %s", total, wins_total)
     return total
 
 
 def cmd_reconcile(cfg: Config):
     members = load_members(cfg.path("members"))
     contracts = _store(cfg).load()
+    pending = unlinked_wins(_wins(cfg).load(), contracts)
+    if pending:
+        log.info("Побед по протоколам без найденного договора: %s", len(pending))
+        contracts.extend(pending)
     for key, source in (("finpod_import", "finpod"), ("member_notices", "notice"),
                         ("nostroy_registry", "nostroy")):
         p = cfg.path(key)

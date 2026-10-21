@@ -14,6 +14,8 @@ class Feed:
     endpoint_law: str     # "44" или "223": какой сервер ЕИС
     subsystem: str        # RGK, RD223, RD615
     document_types: list[str]
+    kind: str = "contract"            # "protocol" — протоколы закупок 223-ФЗ
+    regions: list[str] | None = None  # свой список регионов (["all"] — все)
 
 
 @dataclass
@@ -45,7 +47,10 @@ class Config:
 
     @property
     def regions(self) -> list[str]:
-        return [str(r) for r in self.eis.get("regions", [])]
+        return expand_regions(self.eis.get("regions", []))
+
+    def feed_regions(self, feed: "Feed") -> list[str]:
+        return expand_regions(feed.regions) if feed.regions else self.regions
 
     # --- период -----------------------------------------------------------
     @property
@@ -69,6 +74,16 @@ class Config:
         return self.raw.get("nostroy", {"mode": "file"})
 
 
+# Коды субъектов РФ, как в ЕИС (orgRegion). Сверьте со справочником ЕИС.
+ALL_REGIONS = [f"{i:02d}" for i in range(1, 80)] + ["80", "81", "83", "84", "85", "86", "87",
+                                                     "89", "90", "91", "92", "93", "94", "95", "99"]
+
+
+def expand_regions(values) -> list[str]:
+    values = [str(v) for v in (values or [])]
+    return list(ALL_REGIONS) if any(v.lower() == "all" for v in values) else values
+
+
 def load_config(path: str | Path) -> Config:
     path = Path(path)
     with open(path, "rb") as fh:
@@ -79,6 +94,8 @@ def load_config(path: str | Path) -> Config:
             endpoint_law=str(f.get("endpoint_law", "44")),
             subsystem=f["subsystem"],
             document_types=list(f.get("document_types", [])),
+            kind=f.get("kind", "contract"),
+            regions=[str(r) for r in f["regions"]] if f.get("regions") else None,
         )
         for f in raw.get("eis", {}).get("feeds", [])
     ]

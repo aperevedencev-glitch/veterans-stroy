@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .models import Contract
+from .protocols import ProtocolWin, WinIndex, contracts_from_223, is_protocol, parse_protocol_xml
 from .tabular import to_date, to_float
 
 log = logging.getLogger(__name__)
@@ -64,6 +65,9 @@ def parse_contract_xml(data: bytes, law: str, member_inns: set[str], raw_file: s
     except ET.ParseError as exc:
         log.warning("Не разобран XML %s: %s", raw_file, exc)
         return []
+    if is_protocol(root):
+        # протокол — не договор: победителей разбирает protocols.py
+        return []
     supplier_blocks = _blocks(root, SUPPLIER_BLOCKS)
     supplier_inns = {inn for b in supplier_blocks for inn in _inns_in(b)}
     hits = supplier_inns & member_inns
@@ -108,9 +112,22 @@ def parse_contract_xml(data: bytes, law: str, member_inns: set[str], raw_file: s
     return result
 
 
-def parse_archive(path: Path, law: str, member_inns: set[str]) -> list[Contract]:
+def scan_xml(data: bytes, law: str, member_inns: set[str], wins: WinIndex | None,
+             raw_file: str = "") -> tuple[list[Contract], list[ProtocolWin]]:
+    """Один XML: договор члена СРО, победа в протоколе или ничего."""
+    if law == "223" and b"urchaseProtocol" in data[:4000]:
+        return [], parse_protocol_xml(data, member_inns, raw_file)
+    found = parse_contract_xml(data, law, member_inns, raw_file)
+    if not found and law == "223" and wins:
+        found = contracts_from_223(data, wins, raw_file)
+    return found, []
+
+
+def scan_archive(path: Path, law: str, member_inns: set[str],
+                 wins: WinIndex | None = None) -> tuple[list[Contract], list[ProtocolWin]]:
     """Разбирает zip-архив ЕИС (в том числе вложенные zip)."""
-    out: list[Contract] = []
+    contracts: list[Contract] = []
+    protocol_wins: list[ProtocolWin] = []
 
     def walk(zf: zipfile.ZipFile, prefix: str):
         for info in zf.infolist():
@@ -119,8 +136,14 @@ def parse_archive(path: Path, law: str, member_inns: set[str]) -> list[Contract]
                 with zipfile.ZipFile(io.BytesIO(zf.read(info))) as inner:
                     walk(inner, f"{prefix}{name}/")
             elif name.lower().endswith(".xml"):
-                out.extend(parse_contract_xml(zf.read(info), law, member_inns, f"{prefix}{name}"))
+                c, w = scan_xml(zf.read(info), law, member_inns, wins, f"{prefix}{name}")
+                contracts.extend(c)
+                protocol_wins.extend(w)
 
     with zipfile.ZipFile(path) as zf:
         walk(zf, f"{path.name}:")
-    return out
+    return contracts, protocol_wins
+
+
+def parse_archive(path: Path, law: str, member_inns: set[str], wins: WinIndex | None = None) -> list[Contract]:
+    return scan_archive(path, law, member_inns, wins)[0]

@@ -269,7 +269,7 @@ function memberCard(m){
   const notes=[];
   if(!m.lvl) notes.push(`<div class="note bad">У члена нет права ОДО в реестре НОСТРОЙ. Договоры по конкурентным процедурам в реестр передать нельзя, пока право не оформлено.</div>`);
   if(m.lvl && !m.liab && cs.some(c=>c.st==='active')) notes.push(`<div class="note">В ЕИС ${cs.filter(c=>c.st==='active').length} действующих договоров на ${rub(sa)}, а в реестре НОСТРОЙ обязательства 0. Это главный кандидат на передачу.</div>`);
-  if(m.stale223) notes.push(`<div class="note info">Ещё ${m.stale223} договоров по 223-ФЗ числятся в ЕИС «в исполнении», но заключены до 2020 года. Робот их не берёт: заказчики не закрыли их в ЕИС.</div>`);
+  if(m.stale223) notes.push(`<div class="note info">В ЕИС по 223-ФЗ найдено ещё ${m.stale223} договоров, которых нет в списке ниже. Робот выгрузит их при следующем обновлении.</div>`);
   const rows=fl.map(c=>{ const k=chk(c.reg); const s=ST[k.status]||ST.new; const f=flags(c).filter(x=>!x.startsWith('у члена'));
     const fix = k.fix? `<div class="flag">исправлено: ${k.fix.price? rubFull(k.fix.price)+' ₽ ':''}${k.fix.date? dmy(k.fix.date):''}</div>`:'';
     return `<tr><td class="num" style="font-size:12px"><a href="${c.law==='44-ФЗ'?'https://zakupki.gov.ru/epz/contract/contractCard/common-info.html?reestrNumber='+c.reg:'https://zakupki.gov.ru/epz/contractfz223/search/results.html?searchString='+c.reg}" target="_blank" rel="noopener" style="color:var(--cyan)">${c.reg}</a><div class="dim">${c.law} · ${c.st==='active'?'действующий':'исполнен'}</div></td>

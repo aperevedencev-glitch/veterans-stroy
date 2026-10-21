@@ -7,7 +7,7 @@ from .models import (CONFIRMED, DECLARED, IN_NOSTROY, MISMATCH, OUT_OF_PERIOD, P
                      Contract, Member, ReconciledRecord)
 
 # Чем выше, тем надёжнее источник для «основной» записи
-PRIORITY = {"eis_44": 5, "eis_223": 5, "eis_615": 5, "notice": 3, "finpod": 2, "nostroy": 1}
+PRIORITY = {"eis_44": 5, "eis_223": 5, "eis_615": 5, "eis_223p": 4, "notice": 3, "finpod": 2, "nostroy": 1}
 
 
 def _close(a: float | None, b: float | None, pct: float) -> bool:
@@ -65,6 +65,8 @@ def period_start(member: Member, competitive: bool | None, competitive_from: dat
 
 
 def _family(source: str) -> str:
+    if source == "eis_223p":
+        return "protocol"       # победа по протоколу, договора в ЕИС нет
     return "eis" if source.startswith("eis_") else source
 
 
@@ -102,6 +104,9 @@ def reconcile(members: dict[str, Member], contracts: list[Contract], competitive
                 status = IN_NOSTROY
             elif "eis" in families:
                 status = CONFIRMED
+            elif "protocol" in families:
+                status = PROBABLE
+                issues.append("победа по протоколу закупки, договор в ЕИС пока не найден")
             elif "notice" in families:
                 status = DECLARED
             elif "finpod" in families:
