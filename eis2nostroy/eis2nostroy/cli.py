@@ -57,11 +57,19 @@ def cmd_fetch(cfg: Config, start: date, end: date) -> tuple[int, list[str]]:
     found, wins_found, errors = 0, 0, []
     feeds = sorted(cfg.feeds, key=lambda f: 0 if f.kind == "protocol" else 1)
     index = None
+    win_regions: list[str] = []
     for feed in feeds:
         if feed.kind != "protocol" and index is None:
-            index = WinIndex(wins_store.load())
+            all_wins = wins_store.load()
+            index = WinIndex(all_wins)
+            # регион заказчика ≈ первые две цифры его ИНН
+            win_regions = sorted({w.customer_inn[:2] for w in all_wins if len(w.customer_inn) >= 10})
+        regions = cfg.feed_regions(feed)
+        if feed.regions and any(r.lower() == "wins" for r in feed.regions):
+            regions = sorted(set(cfg.regions) | set(win_regions))
+            log.info("%s: регионы заказчиков, где члены побеждали: %s", feed.subsystem, ", ".join(regions))
         for day in _days(start, end):
-            for region in cfg.feed_regions(feed):
+            for region in regions:
                 try:
                     for archive in client.fetch_day(feed, region, day):
                         contracts, wins = scan_archive(archive, feed.law, inns, index)
@@ -94,6 +102,51 @@ def cmd_import_archives(cfg: Config, law: str, folder: Path) -> int:
         total += store.add(scan_archive(z, law, inns, index)[0])
     log.info("Из архивов добавлено договоров: %s, побед по протоколам: %s", total, wins_total)
     return total
+
+
+def cmd_probe(cfg: Config, protocol_day: date, contract_day: date, region: str,
+              expect_reg: str = "") -> bool:
+    """Короткая проверка токена и настроек на одном дне и одном регионе.
+
+    По умолчанию — закупка № 32414075550 ООО «ЛУКОЙЛ-ВОЛГОГРАДЭНЕРГО» (регион 34):
+    итоговый протокол опубликован 28.10.2024, редакция договора — 24.12.2024,
+    победитель — ООО «ВОЛГОГРАДМОНТАЖ».
+    """
+    members = load_members(cfg.path("members"))
+    inns = set(members)
+    client = EisClient(cfg)
+    store, wins_store = _store(cfg), _wins(cfg)
+    ok = True
+    print(f"Членов СРО в списке: {len(inns)}")
+    for feed in sorted(cfg.feeds, key=lambda f: 0 if f.kind == "protocol" else 1):
+        if feed.law != "223":
+            continue
+        day = protocol_day if feed.kind == "protocol" else contract_day
+        index = None if feed.kind == "protocol" else WinIndex(wins_store.load())
+        try:
+            archives = client.fetch_day(feed, region, day)
+        except (EisError, OSError) as exc:
+            print(f"ОШИБКА {feed.subsystem} {feed.document_types} {day} регион {region}: {exc}")
+            ok = False
+            continue
+        contracts, wins = [], []
+        for a in archives:
+            c, w = scan_archive(a, feed.law, inns, index)
+            contracts += c
+            wins += w
+        store.add(contracts)
+        wins_store.add(wins)
+        print(f"{feed.subsystem} {', '.join(feed.document_types)} за {day:%d.%m.%Y}, регион {region}: "
+              f"архивов {len(archives)}, побед членов {len(wins)}, договоров членов {len(contracts)}")
+        for w in wins:
+            print(f"   победа: {w.supplier_name} ИНН {w.supplier_inn}, протокол {w.protocol_number}, {w.price}")
+        for c in contracts:
+            print(f"   договор: {c.reg_number} ИНН {c.supplier_inn}, {c.price}, {c.sign_date}")
+        if expect_reg and feed.kind != "protocol":
+            hit = any(c.reg_number == expect_reg for c in contracts)
+            print(("НАЙДЕН" if hit else "НЕ НАЙДЕН") + f" договор {expect_reg}")
+            ok = ok and hit
+    return ok
 
 
 def cmd_reconcile(cfg: Config):
@@ -139,6 +192,11 @@ def main(argv=None) -> int:
     i.add_argument("--law", required=True, choices=["44", "223", "615"])
     i.add_argument("folder", type=Path)
     sub.add_parser("reconcile", help="сверить источники и подготовить выгрузки")
+    pr = sub.add_parser("probe", help="проверить токен и настройки 223-ФЗ на одной закупке")
+    pr.add_argument("--protocol-day", default="2024-10-28", type=date.fromisoformat)
+    pr.add_argument("--contract-day", default="2024-12-24", type=date.fromisoformat)
+    pr.add_argument("--region", default="34")
+    pr.add_argument("--expect", default="53435098928240001840000")
     r = sub.add_parser("run", help="ежедневный прогон: скачать последние дни и сверить")
     r.add_argument("--days", type=int, default=3)
     args = ap.parse_args(argv)
@@ -156,6 +214,8 @@ def main(argv=None) -> int:
         if args.cmd == "reconcile":
             cmd_reconcile(cfg)
             return 0
+        if args.cmd == "probe":
+            return 0 if cmd_probe(cfg, args.protocol_day, args.contract_day, args.region, args.expect) else 1
         if args.cmd == "run":
             end = date.today() - timedelta(days=1)
             _, errors = cmd_fetch(cfg, end - timedelta(days=args.days - 1), end)

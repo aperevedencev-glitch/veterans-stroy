@@ -81,7 +81,9 @@ ALL_REGIONS = [f"{i:02d}" for i in range(1, 80)] + ["80", "81", "83", "84", "85"
 
 def expand_regions(values) -> list[str]:
     values = [str(v) for v in (values or [])]
-    return list(ALL_REGIONS) if any(v.lower() == "all" for v in values) else values
+    if any(v.lower() == "all" for v in values):
+        return list(ALL_REGIONS)
+    return [v for v in values if v.lower() != "wins"]
 
 
 def load_config(path: str | Path) -> Config:

@@ -105,3 +105,20 @@ def test_reconcile_statuses():
     assert unlinked_wins(wins, linked) == []
     recs = reconcile(members, linked, date(2017, 7, 1), date(2026, 3, 1))
     assert [r.status for r in recs] == [CONFIRMED]
+
+
+def test_probe_with_fake_eis(tmp_path, monkeypatch, capsys):
+    from openpyxl import Workbook
+    from eis2nostroy import cli
+    from eis2nostroy.eis_client import EisClient
+    wb = Workbook(); ws = wb.active
+    ws.append(["ИНН", "Наименование"]); ws.append([VOLGO, "ООО ВОЛГОГРАДМОНТАЖ"])
+    (tmp_path / "data").mkdir(); wb.save(tmp_path / "data" / "members.xlsx")
+    cfg = (Path(__file__).parents[1] / "config.example.toml").read_text(encoding="utf-8")
+    (tmp_path / "config.toml").write_text(cfg, encoding="utf-8")
+    zp = tmp_path / "p.zip"; zp.write_bytes(_zip({"p.xml": PROTOCOL}))
+    zc = tmp_path / "c.zip"; zc.write_bytes(_zip({"c.xml": CONTRACT}))
+    monkeypatch.setattr(EisClient, "fetch_day",
+                        lambda self, feed, region, day: [zp] if feed.kind == "protocol" else [zc])
+    assert cli.main(["-c", str(tmp_path / "config.toml"), "probe"]) == 0
+    assert "НАЙДЕН договор 53435098928240001840000" in capsys.readouterr().out

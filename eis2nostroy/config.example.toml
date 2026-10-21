@@ -33,7 +33,7 @@ token_header = "individualPerson_token"
 mode = "PROD"
 timeout_sec = 60
 # Не более 5000 запросов в час на пользователя (инструкция ЕИС); держим запас.
-min_interval_sec = 1.5
+min_interval_sec = 1.0
 archive_retries = 6
 archive_retry_wait_sec = 20
 
@@ -84,7 +84,9 @@ law = "223"
 endpoint_law = "223"
 subsystem = "RD223"
 document_types = ["contract"]
-regions = ["all"]
+# "wins" — только регионы заказчиков, у которых члены СРО побеждали по протоколам
+# (плюс регионы из [eis].regions). Так договоры 223-ФЗ грузятся вдвое быстрее.
+regions = ["wins"]
 
 [matching]
 date_tolerance_days = 3
