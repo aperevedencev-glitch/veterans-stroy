@@ -22,7 +22,10 @@ from .members import load_members
 from .models import CONFIRMED, DECLARED, MISMATCH, PROBABLE
 from .nostroy import NostroyTransport
 from .parser import scan_archive
-from .protocols import WinIndex, WinStore, unlinked_wins
+import json
+import zipfile
+
+from .protocols import WinIndex, WinStore, protocol_types_from_nsi, unlinked_wins
 from .reconcile import reconcile
 from .sources import ContractStore, load_table_source
 
@@ -35,6 +38,39 @@ def _store(cfg: Config) -> ContractStore:
 
 def _wins(cfg: Config) -> WinStore:
     return WinStore((cfg.path("work_dir") or Path("data/work")) / "protocol_wins.jsonl")
+
+
+def _types_file(cfg: Config) -> Path:
+    return (cfg.path("work_dir") or Path("data/work")) / "protocol_types.json"
+
+
+def _apply_protocol_types(cfg: Config) -> None:
+    """Типы протоколов из справочника ЕИС (сохраняет команда probe)."""
+    f = _types_file(cfg)
+    if not f.exists():
+        return
+    types = json.loads(f.read_text(encoding="utf-8")).get("protocols") or []
+    if types:
+        for feed in cfg.feeds:
+            if feed.kind == "protocol":
+                feed.document_types = list(types)
+
+
+def _load_nsi_protocol_types(cfg: Config, client: EisClient) -> list[str]:
+    folder = (cfg.path("cache_dir") or Path("data/cache")) / "nsi"
+    folder.mkdir(parents=True, exist_ok=True)
+    for old in folder.glob("nsiDocumentTypes223_*.zip"):
+        old.unlink()
+    blobs = []
+    for z in client.fetch_nsi("nsiDocumentTypes223", folder):
+        with zipfile.ZipFile(z) as zf:
+            blobs += [zf.read(n) for n in zf.namelist() if n.lower().endswith(".xml")]
+    protocols, public = protocol_types_from_nsi(blobs)
+    f = _types_file(cfg)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"protocols": protocols, "public": public}, ensure_ascii=False, indent=1),
+                 encoding="utf-8")
+    return protocols
 
 
 def _days(start: date, end: date):
@@ -53,6 +89,7 @@ def cmd_fetch(cfg: Config, start: date, end: date) -> tuple[int, list[str]]:
     members = load_members(cfg.path("members"))
     inns = set(members)
     client = EisClient(cfg)
+    _apply_protocol_types(cfg)
     store, wins_store = _store(cfg), _wins(cfg)
     found, wins_found, errors = 0, 0, []
     feeds = sorted(cfg.feeds, key=lambda f: 0 if f.kind == "protocol" else 1)
@@ -118,6 +155,15 @@ def cmd_probe(cfg: Config, protocol_day: date, contract_day: date, region: str,
     store, wins_store = _store(cfg), _wins(cfg)
     ok = True
     print(f"Членов СРО в списке: {len(inns)}")
+    print(f"Сервис ЕИС: {cfg.endpoint('223')}")
+    try:
+        types = _load_nsi_protocol_types(cfg, client)
+        print(f"Справочник типов документов 223-ФЗ получен, типов протоколов: {len(types)}")
+        print("   " + ", ".join(types[:40]) + (" ..." if len(types) > 40 else ""))
+    except (EisError, OSError, zipfile.BadZipFile) as exc:
+        print(f"ОШИБКА справочника nsiDocumentTypes223 (токен или доступ): {exc}")
+        ok = False
+    _apply_protocol_types(cfg)
     for feed in sorted(cfg.feeds, key=lambda f: 0 if f.kind == "protocol" else 1):
         if feed.law != "223":
             continue

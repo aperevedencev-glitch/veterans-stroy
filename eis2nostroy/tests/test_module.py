@@ -139,7 +139,7 @@ def test_client_request_and_download(tmp_path):
     paths = client.fetch_day(cfg.feeds[0], "77", date(2026, 5, 12))
     assert len(paths) == 1 and paths[0].read_bytes()[:2] == b"PK"
     url, body = sess.posts[0]
-    assert url.endswith("/getDocsLE")
+    assert url == "https://int.zakupki.gov.ru/eis-integration/services/getDocsIP"
     assert "<subsystemType>RGK</subsystemType>" in body
     assert "<orgRegion>77</orgRegion>" in body
     assert "<exactDate>2026-05-12</exactDate>" in body

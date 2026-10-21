@@ -21,6 +21,23 @@ os.chdir(HERE)
 from eis2nostroy import cli  # noqa: E402
 
 
+class Tee:
+    """Всё, что видно в окне, пишется и в файл лога."""
+
+    def __init__(self, stream, fh):
+        self.stream, self.fh = stream, fh
+
+    def write(self, data):
+        self.stream.write(data)
+        self.fh.write(data)
+        self.fh.flush()
+        return len(data)
+
+    def flush(self):
+        self.stream.flush()
+        self.fh.flush()
+
+
 def need_token():
     if not os.environ.get("EIS_TOKEN"):
         t = getpass.getpass("Вставьте токен ЕИС (символы не видны) и нажмите Enter: ").strip()
@@ -33,8 +50,12 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "probe"
     (HERE / "data" / "logs").mkdir(parents=True, exist_ok=True)
     log_file = HERE / "data" / "logs" / f"{cmd}_{date.today():%Y%m%d}.log"
+    fh = open(log_file, "a", encoding="utf-8")
+    sys.stdout = Tee(sys.__stdout__, fh)
+    sys.stderr = Tee(sys.__stderr__, fh)
+    print(f"=== {cmd} {date.today():%d.%m.%Y}, Python {sys.version.split()[0]} ===")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
-                        handlers=[logging.FileHandler(log_file, encoding="utf-8"), logging.StreamHandler()])
+                        handlers=[logging.StreamHandler(sys.stdout)])
     if cmd == "probe":
         need_token()
         rc = cli.main(["-c", "config.toml", "probe"])
@@ -55,4 +76,12 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    except SystemExit:
+        raise
+    except BaseException:  # noqa: BLE001 — любой сбой должен попасть в лог
+        import traceback
+        traceback.print_exc()
+        code = 1
+    sys.exit(code)

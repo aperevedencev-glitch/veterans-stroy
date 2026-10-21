@@ -307,3 +307,37 @@ def unlinked_wins(wins: list[ProtocolWin], contracts: list[Contract]) -> list[Co
                    "winner_reason": w.reason},
         ))
     return out
+
+
+# ---------------------------------------------------- справочник типов документов
+CODE_NAMES = ("code", "docType", "documentType", "typeCode", "type")
+
+
+def protocol_types_from_nsi(xml_blobs: list[bytes]) -> tuple[list[str], list[tuple[str, str]]]:
+    """Из справочника nsiDocumentTypes223: типы протоколов, отдаваемые публично.
+
+    Возвращает (коды протоколов, все публичные типы [(код, наименование)]).
+    Разбор по локальным именам: запись — элемент с потомком distributedPublicly.
+    """
+    public: list[tuple[str, str]] = []
+    for data in xml_blobs:
+        try:
+            root = ET.fromstring(data)
+        except ET.ParseError:
+            continue
+        for rec in root.iter():
+            kids = {_local(c.tag): (c.text or "").strip() for c in rec}
+            if "distributedPublicly" not in kids:
+                continue
+            if kids["distributedPublicly"].lower() not in TRUE:
+                continue
+            code = next((kids[n] for n in CODE_NAMES if kids.get(n)), "")
+            if code:
+                public.append((code, kids.get("name") or kids.get("fullName") or ""))
+    seen, uniq = set(), []
+    for code, name in public:
+        if code not in seen:
+            seen.add(code)
+            uniq.append((code, name))
+    protocols = [c for c, n in uniq if "protocol" in c.lower() or "протокол" in n.lower()]
+    return protocols, uniq

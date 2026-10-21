@@ -23,9 +23,10 @@ from .config import Config, Feed
 
 log = logging.getLogger(__name__)
 
+# Единый сервис getDocsIP использует пространство имён 44-ФЗ и для 223-ФЗ
 NS = {
     "44": "http://zakupki.gov.ru/fz44/get-docs-ip/ws",
-    "223": "http://zakupki.gov.ru/fz223/get-docs-ip/ws",
+    "223": "http://zakupki.gov.ru/fz44/get-docs-ip/ws",
 }
 
 
@@ -69,6 +70,45 @@ class EisClient:
   </soapenv:Body>
 </soapenv:Envelope>"""
 
+    def build_nsi_request(self, code: str, law: str = "223") -> str:
+        token_tag = self.cfg.eis.get("token_header", "individualPerson_token")
+        tag = "nsiCode223" if law == "223" else "nsiCode44"
+        return f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ws="{NS[law]}">
+  <soapenv:Header>
+    <{token_tag}>{escape(self.cfg.token)}</{token_tag}>
+  </soapenv:Header>
+  <soapenv:Body>
+    <ws:getNsiRequest>
+      <index>
+        <id>{uuid.uuid4()}</id>
+        <createDateTime>{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}</createDateTime>
+        <mode>{self.cfg.eis.get('mode', 'PROD')}</mode>
+      </index>
+      <selectionParams>
+        <{tag}>{escape(code)}</{tag}>
+        <nsiKind>all</nsiKind>
+      </selectionParams>
+    </ws:getNsiRequest>
+  </soapenv:Body>
+</soapenv:Envelope>"""
+
+    def _post(self, endpoint_law: str, body: str) -> bytes:
+        self._throttle()
+        token_tag = self.cfg.eis.get("token_header", "individualPerson_token")
+        resp = self.http.post(
+            self.cfg.endpoint(endpoint_law),
+            data=body.encode("utf-8"),
+            headers={"Content-Type": "text/xml; charset=utf-8", token_tag: self.cfg.token},
+            timeout=self.cfg.eis.get("timeout_sec", 60),
+        )
+        if resp.status_code != 200:
+            raise EisError(f"ЕИС вернул HTTP {resp.status_code}: {resp.text[:300]}")
+        return resp.content
+
+    def fetch_nsi(self, code: str, dest_dir: Path, law: str = "223") -> list[Path]:
+        urls = parse_archive_urls(self._post(law, self.build_nsi_request(code, law)))
+        return [self.download_archive(u, dest_dir / f"{code}_{i:03d}.zip") for i, u in enumerate(urls)]
+
     def _throttle(self):
         wait = float(self.cfg.eis.get("min_interval_sec", 1.5)) - (time.monotonic() - self._last_call)
         if wait > 0:
@@ -77,17 +117,8 @@ class EisClient:
 
     def request_archives(self, feed: Feed, region: str, day: date, doc_type: str) -> list[str]:
         """Возвращает ссылки на архивы (их может быть несколько)."""
-        self._throttle()
         body = self.build_region_request(feed, region, day, doc_type)
-        resp = self.http.post(
-            self.cfg.endpoint(feed.endpoint_law),
-            data=body.encode("utf-8"),
-            headers={"Content-Type": "text/xml; charset=utf-8"},
-            timeout=self.cfg.eis.get("timeout_sec", 60),
-        )
-        if resp.status_code != 200:
-            raise EisError(f"ЕИС вернул HTTP {resp.status_code}: {resp.text[:300]}")
-        return parse_archive_urls(resp.content)
+        return parse_archive_urls(self._post(feed.endpoint_law, body))
 
     def download_archive(self, url: str, dest: Path) -> Path:
         """Скачивает архив. Архив готовится на стороне ЕИС, поэтому повторяем."""

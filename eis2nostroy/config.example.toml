@@ -24,7 +24,7 @@ noncompetitive_from = "2026-03-01"
 
 [eis]
 # Тип доступа: "IP" — физическое лицо, "LE" — юридическое лицо.
-access = "LE"
+access = "IP"
 token = ""                             # или переменная окружения EIS_TOKEN
 # Имя элемента токена в SOAP-заголовке и HTTP-заголовке при скачивании архива.
 # Для физлица по открытым примерам — individualPerson_token.
@@ -42,15 +42,11 @@ archive_retry_wait_sec = 20
 regions = ["50", "77"]
 
 [eis.endpoints]
-IP_44  = "https://int44.zakupki.gov.ru/eis-integration/services/getDocsIP"
-LE_44  = "https://int44.zakupki.gov.ru/eis-integration/services/getDocsLE"
-IP_223 = "https://int223.zakupki.gov.ru/eis-integration/services/getDocsIP"
-LE_223 = "https://int223.zakupki.gov.ru/eis-integration/services/getDocsLE"
+# С 2025 года ЕИС отдаёт данные 44-ФЗ и 223-ФЗ через один сервис getDocsIP
+# (getDocsLE отвечает 404). Адрес проверен по WSDL 22.10.2026.
+IP_44  = "https://int.zakupki.gov.ru/eis-integration/services/getDocsIP"
+IP_223 = "https://int.zakupki.gov.ru/eis-integration/services/getDocsIP"
 
-# Подсистемы и типы документов. Коды подсистем взяты из инструкции ЕИС:
-# RGK — реестр контрактов 44-ФЗ, RD615 — реестр договоров ПП РФ 615,
-# RD223 — реестр договоров 223-ФЗ. Типы документов сверьте с XSD сервиса
-# (getDocsIP-ws-api.xsd) перед запуском в работу.
 [[eis.feeds]]
 law = "44"
 endpoint_law = "44"
@@ -68,9 +64,9 @@ document_types = ["contract"]
 # победитель в протоколе, а договор связывается с протоколом по его guid.
 # Этот поток идёт первым и по всем регионам: члены работают с заказчиками
 # по всей стране (например, ЛУКОЙЛ в Волгограде — регион 34).
-# ПРОВЕРЬТЕ по инструкции ЕИС код подсистемы закупок 223-ФЗ и типы документов
-# протоколов: у электронных процедур свои типы (purchaseProtocol...),
-# модуль разбирает любой из них.
+# RI223 — «Реестр извещений о закупках» (по схеме сервиса). Типы документов-
+# протоколов команда probe берёт из справочника ЕИС nsiDocumentTypes223 и
+# сохраняет в data/work/protocol_types.json — тогда список ниже не используется.
 [[eis.feeds]]
 law = "223"
 endpoint_law = "223"

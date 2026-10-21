@@ -118,7 +118,32 @@ def test_probe_with_fake_eis(tmp_path, monkeypatch, capsys):
     (tmp_path / "config.toml").write_text(cfg, encoding="utf-8")
     zp = tmp_path / "p.zip"; zp.write_bytes(_zip({"p.xml": PROTOCOL}))
     zc = tmp_path / "c.zip"; zc.write_bytes(_zip({"c.xml": CONTRACT}))
-    monkeypatch.setattr(EisClient, "fetch_day",
-                        lambda self, feed, region, day: [zp] if feed.kind == "protocol" else [zc])
+    zn = tmp_path / "n.zip"; zn.write_bytes(_zip({"nsi.xml": NSI}))
+    monkeypatch.setattr(EisClient, "fetch_nsi", lambda self, code, dest, law="223": [zn])
+    seen = []
+
+    def fake_day(self, feed, region, day):
+        seen.append((feed.kind, tuple(feed.document_types)))
+        return [zp] if feed.kind == "protocol" else [zc]
+    monkeypatch.setattr(EisClient, "fetch_day", fake_day)
     assert cli.main(["-c", str(tmp_path / "config.toml"), "probe"]) == 0
-    assert "НАЙДЕН договор 53435098928240001840000" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "НАЙДЕН договор 53435098928240001840000" in out
+    # типы протоколов взяты из справочника, а не из настроек
+    assert ("protocol", ("purchaseProtocol", "purchaseProtocolZK")) in seen
+
+
+NSI = """<?xml version="1.0" encoding="UTF-8"?>
+<nsiDocumentTypes xmlns="http://zakupki.gov.ru/223fz/reference/1"><body>
+ <item><code>purchaseProtocol</code><name>Протокол закупки</name><distributedPublicly>true</distributedPublicly></item>
+ <item><code>purchaseProtocolZK</code><name>Протокол запроса котировок</name><distributedPublicly>true</distributedPublicly></item>
+ <item><code>purchaseProtocolSecret</code><name>Протокол</name><distributedPublicly>false</distributedPublicly></item>
+ <item><code>contract</code><name>Сведения о договоре</name><distributedPublicly>true</distributedPublicly></item>
+</body></nsiDocumentTypes>""".encode()
+
+
+def test_protocol_types_from_nsi():
+    from eis2nostroy.protocols import protocol_types_from_nsi
+    protocols, public = protocol_types_from_nsi([NSI])
+    assert protocols == ["purchaseProtocol", "purchaseProtocolZK"]
+    assert ("contract", "Сведения о договоре") in public
