@@ -644,7 +644,7 @@ function st1(){
   const F=[['all','Все'],['act','С действующими'],['gap','В НОСТРОЙ 0'],['none','Без договоров']];
   $('#rview').innerHTML = `<section class="panel">
     <div class="ph"><div><h2>Станция 1 · Выгрузка из ЕИС</h2><p>Договоры каждого члена СРО из ЕИС по ИНН, рядом — уровень ответственности и обязательства в реестре НОСТРОЙ. Нажмите на строку, чтобы перейти к сверке.</p></div>
-      <div class="tools"><button class="btn pri" type="button" id="reload">Обновить из базы</button></div></div>
+      <div class="tools"><button class="btn pri" type="button" id="reload">Обновить из базы</button><button class="btn" type="button" id="xall">Скачать всё в Excel</button></div></div>
     <div class="tools"><input class="inp" id="q1" placeholder="Название или ИНН" value="${esc(R.q)}" style="flex:1;min-width:200px">
       <div class="seg">${F.map(([k,t])=>`<button type="button" data-f="${k}" aria-pressed="${R.f===k}">${t}</button>`).join('')}</div>
       <span class="muted" style="font-size:12.5px">показано ${list.length} из ${MEM.length}</span></div>
@@ -654,6 +654,7 @@ function st1(){
   const q1=$('#q1'); q1.oninput=()=>{R.q=q1.value; const p=q1.selectionStart; st1(); const n=$('#q1'); n.focus(); n.setSelectionRange(p,p)};
   document.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{R.f=b.dataset.f; st1()});
   document.querySelectorAll('tr[data-inn]').forEach(tr=>tr.onclick=()=>{R.sel=tr.dataset.inn; R.st=2; renderRobot(); window.scrollTo({top:0,behavior:'smooth'})});
+  $('#xall').onclick=exportAll;
   $('#reload').onclick=()=>{ const b=$('#reload'); b.disabled=true; b.textContent='Обновляю…'; $('#minibot').classList.add('busy'); $('#say').textContent='Забираю договоры из базы…';
     setTimeout(()=>{ b.disabled=false; b.textContent='Обновить из базы'; $('#minibot').classList.remove('busy');
       const n=MEM.flatMap(m=>m.c).length; $('#say').textContent=`Обновлено: ${MEM.length} членов, ${n.toLocaleString('ru-RU')} договоров.`; toast('Данные обновлены из базы'); log(`Обновление из базы: ${MEM.length} членов, ${n} договоров`,'Робот') },1400) };
@@ -758,12 +759,50 @@ function st3(){
   </section>`;
   if(!rows.length) return;
   const table=()=>rows.map(r=>({'Член СРО':r.m.name,'ИНН':r.m.inn,'Реестровый номер договора':r.c.reg,'Закон':r.c.law,'Заказчик':r.c.cust,'Предмет':r.c.obj,'Цена, ₽':r.k.fixPrice||r.c.price,'Дата заключения':dmy(r.c.date),'Срок исполнения':dmy(r.c.until),'Подтвердил':r.k.by}));
-  const fname='Пакет НОСТРОЙ — Стройкорпорация — '+new Date().toISOString().slice(0,10);
-  $('#xlsx').onclick=()=>{ try{ const ws=XLSX.utils.json_to_sheet(table()); ws['!cols']=[{wch:40},{wch:13},{wch:22},{wch:8},{wch:40},{wch:50},{wch:16},{wch:12},{wch:12},{wch:16}]; const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Договоры'); XLSX.writeFile(wb,fname+'.xlsx'); log(`Сформирован пакет .xlsx: ${rows.length} договоров`); toast('Пакет сформирован. Если файл не скачался, откройте стенд как файл в браузере') }catch(e){ toast('Не удалось сформировать файл: '+e.message) } };
+  const fname='Paket_NOSTROY_Stroykorporaciya_'+new Date().toISOString().slice(0,10);
+  $('#xlsx').onclick=()=>{ try{ const ws=XLSX.utils.json_to_sheet(table()); ws['!cols']=[{wch:40},{wch:13},{wch:22},{wch:8},{wch:40},{wch:50},{wch:16},{wch:12},{wch:12},{wch:16}]; const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Договоры'); saveXlsx(wb,fname+'.xlsx'); log(`Сформирован пакет .xlsx: ${rows.length} договоров`); toast('Пакет сформирован. Если файл не скачался, откройте стенд как файл в браузере') }catch(e){ toast('Не удалось сформировать файл: '+e.message) } };
   $('#csv').onclick=()=>{ const t=table(), h=Object.keys(t[0]); const csv='﻿'+[h.join(';')].concat(t.map(r=>h.map(k=>'"'+String(r[k]).replace(/"/g,'""')+'"').join(';'))).join('\r\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=fname+'.csv'; document.body.appendChild(a); a.click(); a.remove(); log(`Сформирован пакет .csv: ${rows.length} договоров`); toast('Пакет .csv сформирован') };
   $('#sent').onclick=()=>{ rows.forEach(r=>setS(r.c.reg,'sent',{},r.k.by)); log(`Пакет передан в НОСТРОЙ: ${rows.length} договоров`); toast('Договоры отмечены как переданные'); counters(); st3() };
 }
 
+
+/* ---------- выгрузка всей информации в Excel ---------- */
+function saveXlsx(wb,name){
+  const buf=XLSX.write(wb,{bookType:'xlsx',type:'array',cellDates:true});
+  const url=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  const a=document.createElement('a'); a.href=url; a.download=name; a.rel='noopener'; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ a.remove(); URL.revokeObjectURL(url) },4000);
+}
+function exportAll(){
+  if(typeof XLSX==='undefined'){ toast('Библиотека Excel не загрузилась. Проверьте интернет и обновите страницу.'); return }
+  const D=s=>s? new Date(s+'T00:00:00Z') : null;
+  const members=MEM.map((m,i)=>{ const a=act(m), d=m.c.filter(c=>c.st==='done'); return {
+    '№':i+1,'ИНН':m.inn,'Член СРО':m.name,'Уровень ОДО':m.lvl||'','Взнос в КФ ОДО, ₽':m.odo||0,'Обязательства в НОСТРОЙ, ₽':m.liab||0,
+    'Договоров в ЕИС, шт':m.c.length,'Действующих, шт':a.length,'Сумма действующих, ₽':sum(a),'Исполнено с 2017, шт':d.length,'Сумма исполненных, ₽':sum(d),
+    'Подтверждено, шт':m.c.filter(c=>['ok','sent'].includes(sOf(c.reg))).length,'Ответ в терминале':SUB[m.inn]?('да, '+SUB[m.inn].at):'',
+    'Статус':!m.c.length?'нет договоров':(a.length&&!m.liab)?'в НОСТРОЙ 0 — на сверку':'проверено' } });
+  const contracts=MEM.flatMap(m=>m.c.map(c=>{ const k=CHK[c.reg]||{}, s=sOf(c.reg); return {
+    'ИНН':m.inn,'Член СРО':m.name,'Закон':c.law,'Статус в ЕИС':c.st==='active'?'Исполнение (действующий)':'Исполнение завершено',
+    'Реестровый номер':c.reg,'Заказчик':c.cust,'Предмет (начало)':c.obj,'Цена, ₽':c.price,'Дата заключения':D(c.date),'Срок исполнения':D(c.until),
+    'Статус сверки':ST[s].t,'Кто отметил':s==='new'?'':(k.by||''),'Исправленная цена, ₽':k.fixPrice||'','Комментарий':k.note||'' } }));
+  const all=MEM.flatMap(m=>m.c), A=all.filter(c=>c.st==='active'), Dn=all.filter(c=>c.st==='done');
+  const summary=[['Демо-стенд FlowLink: вся информация'],['Ассоциация СРО «Стройкорпорация» (СРО-С-130-21122009)'],['Выгрузка',new Date().toLocaleString('ru-RU')],[],
+    ['Показатель','Значение'],['Членов СРО',MEM.length],['Членов с договорами в ЕИС',MEM.filter(m=>m.c.length).length],['Договоров всего',all.length],
+    ['Действующих',A.length],['Сумма действующих, ₽',sum(A)],['Исполнено с 2017',Dn.length],['Сумма исполненных, ₽',sum(Dn)],
+    ['Подтверждено на стенде',all.filter(c=>['ok','sent'].includes(sOf(c.reg))).length],['Передано в НОСТРОЙ',all.filter(c=>sOf(c.reg)==='sent').length],[],
+    ['Источник: ЕИС (zakupki.gov.ru), выгрузка 19–20.10.2026; сведения об уровне ОДО и обязательствах — Единый реестр НОСТРОЙ.'],
+    ['Действующие контракты ПАО «Т Плюс» по 44-ФЗ (теплоснабжение, 1 994 шт.) в стенд не входят: это не строительный подряд.'],
+    ['Статусы сверки отражают действия на стенде до момента выгрузки.']];
+  const wb=XLSX.utils.book_new();
+  const ws0=XLSX.utils.aoa_to_sheet(summary); ws0['!cols']=[{wch:44},{wch:24}];
+  const ws1=XLSX.utils.json_to_sheet(members); ws1['!cols']=[{wch:5},{wch:13},{wch:46},{wch:8},{wch:14},{wch:18},{wch:10},{wch:10},{wch:18},{wch:10},{wch:18},{wch:12},{wch:16},{wch:24}]; ws1['!autofilter']={ref:ws1['!ref']};
+  const ws2=XLSX.utils.json_to_sheet(contracts,{cellDates:true}); ws2['!cols']=[{wch:13},{wch:40},{wch:8},{wch:24},{wch:22},{wch:44},{wch:50},{wch:16},{wch:12},{wch:12},{wch:20},{wch:16},{wch:14},{wch:30}]; ws2['!autofilter']={ref:ws2['!ref']};
+  [ws1,ws2].forEach(ws=>{ const r=XLSX.utils.decode_range(ws['!ref']); for(let R=1;R<=r.e.r;R++) for(let C=0;C<=r.e.c;C++){ const cell=ws[XLSX.utils.encode_cell({r:R,c:C})]; if(!cell) continue; if(cell.t==='n'&&cell.v>=1000) cell.z='#,##0'; if(cell.t==='d') cell.z='dd.mm.yyyy' } });
+  XLSX.utils.book_append_sheet(wb,ws0,'Сводка'); XLSX.utils.book_append_sheet(wb,ws1,'Члены СРО'); XLSX.utils.book_append_sheet(wb,ws2,'Договоры ЕИС');
+  const name='FlowLink_Stroykorporaciya_vse_dannye_'+new Date().toISOString().slice(0,10)+'.xlsx';
+  try{ saveXlsx(wb,name); log(`Выгрузка в Excel: ${MEM.length} членов, ${all.length} договоров`); toast('Файл Excel сформирован: '+all.length+' договоров. Если не скачался, откройте стенд в браузере по ссылке на GitHub') }
+  catch(e){ toast('Не удалось сформировать файл: '+e.message) }
+}
 /* ---------- ТЕРМИНАЛ ---------- */
 const T = { ltab:'member', who:null, mode:null, inn:null, ans:{}, added:[], sent:false, filt:'all', opSel:null, opQ:'' };
 function termLogin(inn,mode){ T.who=mode; T.inn=inn; T.ans={}; T.added=[]; T.sent=false; T.filt='all'; const m=M[inn];
