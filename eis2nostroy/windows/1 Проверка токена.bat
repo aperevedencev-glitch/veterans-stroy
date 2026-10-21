@@ -9,7 +9,7 @@ pause
 exit /b
 
 :setup
-if exist "%~dp0.venv\Scripts\python.exe" exit /b 0
+if exist "%~dp0.venv\Scripts\python.exe" goto :deps
 set PY=
 where py >nul 2>nul && set PY=py -3
 if not defined PY where python >nul 2>nul && set PY=python
@@ -19,5 +19,6 @@ if not defined PY (
 )
 echo Готовлю окружение, это один раз и 1-2 минуты...
 %PY% -m venv "%~dp0.venv" || exit /b 1
-"%~dp0.venv\Scripts\python.exe" -m pip install -q -r requirements.txt || exit /b 1
+:deps
+"%~dp0.venv\Scripts\python.exe" -m pip install -q --disable-pip-version-check -r requirements.txt || exit /b 1
 exit /b 0

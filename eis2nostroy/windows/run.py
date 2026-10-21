@@ -18,6 +18,15 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 os.chdir(HERE)
 
+# Сертификаты из хранилища Windows: сервис ЕИС подписан российским корневым
+# сертификатом (Минцифры), которого нет во встроенном списке Python.
+# Проверка подлинности сервера при этом остаётся включённой.
+try:
+    import truststore  # noqa: E402
+    truststore.inject_into_ssl()
+except ImportError:
+    print("Не установлен пакет truststore: запустите «1 Проверка токена.bat», он доставит его сам.")
+
 from eis2nostroy import cli  # noqa: E402
 
 
