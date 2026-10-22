@@ -117,7 +117,8 @@ def cmd_fetch(cfg: Config, start: date, end: date, newest_first: bool = True) ->
     _apply_protocol_types(cfg)
     store, wins_store = _store(cfg), _wins(cfg)
     found, wins_found, errors = 0, 0, []
-    feeds = sorted(cfg.feeds, key=lambda f: 0 if f.kind == "protocol" else 1)
+    # протоколы, затем 223-ФЗ (главное для сверки), затем 44-ФЗ и 615-ПП
+    feeds = sorted(cfg.feeds, key=lambda f: 0 if f.kind == "protocol" else (1 if f.law == "223" else 2))
     days = list(_days(start, end))
     if newest_first:
         days.reverse()
