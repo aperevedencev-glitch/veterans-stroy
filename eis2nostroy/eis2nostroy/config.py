@@ -16,6 +16,7 @@ class Feed:
     document_types: list[str]
     kind: str = "contract"            # "protocol" — протоколы закупок 223-ФЗ
     regions: list[str] | None = None  # свой список регионов (["all"] — все)
+    lookup_protocols: bool = False    # договор без поставщика → протоколы по номеру закупки
 
 
 @dataclass
@@ -98,6 +99,7 @@ def load_config(path: str | Path) -> Config:
             document_types=list(f.get("document_types", [])),
             kind=f.get("kind", "contract"),
             regions=[str(r) for r in f["regions"]] if f.get("regions") else None,
+            lookup_protocols=bool(f.get("lookup_protocols", False)),
         )
         for f in raw.get("eis", {}).get("feeds", [])
     ]

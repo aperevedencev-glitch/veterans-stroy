@@ -126,11 +126,14 @@ def test_probe_with_fake_eis(tmp_path, monkeypatch, capsys):
         seen.append((feed.kind, tuple(feed.document_types)))
         return [zp] if feed.kind == "protocol" else [zc]
     monkeypatch.setattr(EisClient, "fetch_day", fake_day)
+    asked = []
+    monkeypatch.setattr(EisClient, "fetch_by_reestr",
+                        lambda self, sub, num, law="223": asked.append((sub, num)) or [zp])
     assert cli.main(["-c", str(tmp_path / "config.toml"), "probe"]) == 0
     out = capsys.readouterr().out
     assert "НАЙДЕН договор 53435098928240001840000" in out
-    # типы протоколов взяты из справочника, а не из настроек
-    assert ("protocol", ("purchaseProtocol", "purchaseProtocolZK")) in seen
+    # протоколы запрошены по номеру закупки из договора
+    assert asked == [("RI223", "32414075550")]
 
 
 NSI = """<?xml version="1.0" encoding="UTF-8"?>
@@ -147,3 +150,10 @@ def test_protocol_types_from_nsi():
     protocols, public = protocol_types_from_nsi([NSI])
     assert protocols == ["purchaseProtocol", "purchaseProtocolZK"]
     assert ("contract", "Сведения о договоре") in public
+
+
+def test_candidate_needs_construction_okpd():
+    from eis2nostroy.protocols import contract_candidate
+    assert contract_candidate(CONTRACT) == [{"notice": "32414075550", "reg": "53435098928240001840000",
+                                             "okpd2": ["42.21.22.110"]}]
+    assert contract_candidate(CONTRACT, ("62.",)) == []

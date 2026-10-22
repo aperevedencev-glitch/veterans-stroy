@@ -14,7 +14,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .models import Contract
-from .protocols import ProtocolWin, WinIndex, contracts_from_223, is_protocol, parse_protocol_xml
+from typing import Callable
+
+from .protocols import (ProtocolWin, WinIndex, contract_candidate, contracts_from_223, is_protocol,
+                        parse_protocol_xml)
 from .tabular import to_date, to_float
 
 log = logging.getLogger(__name__)
@@ -112,19 +115,29 @@ def parse_contract_xml(data: bytes, law: str, member_inns: set[str], raw_file: s
     return result
 
 
+Lookup = Callable[[str], list[ProtocolWin]]   # номер закупки → победы членов в её протоколах
+
+
 def scan_xml(data: bytes, law: str, member_inns: set[str], wins: WinIndex | None,
-             raw_file: str = "") -> tuple[list[Contract], list[ProtocolWin]]:
+             raw_file: str = "", lookup: Lookup | None = None) -> tuple[list[Contract], list[ProtocolWin]]:
     """Один XML: договор члена СРО, победа в протоколе или ничего."""
     if law == "223" and b"urchaseProtocol" in data[:4000]:
         return [], parse_protocol_xml(data, member_inns, raw_file)
     found = parse_contract_xml(data, law, member_inns, raw_file)
     if not found and law == "223" and wins:
         found = contracts_from_223(data, wins, raw_file)
-    return found, []
+    new_wins: list[ProtocolWin] = []
+    if not found and law == "223" and lookup is not None:
+        for cand in contract_candidate(data):
+            got = lookup(cand["notice"])
+            if got:
+                new_wins += got
+                found += contracts_from_223(data, WinIndex(got), raw_file)
+    return found, new_wins
 
 
-def scan_archive(path: Path, law: str, member_inns: set[str],
-                 wins: WinIndex | None = None) -> tuple[list[Contract], list[ProtocolWin]]:
+def scan_archive(path: Path, law: str, member_inns: set[str], wins: WinIndex | None = None,
+                 lookup: Lookup | None = None) -> tuple[list[Contract], list[ProtocolWin]]:
     """Разбирает zip-архив ЕИС (в том числе вложенные zip)."""
     contracts: list[Contract] = []
     protocol_wins: list[ProtocolWin] = []
@@ -136,7 +149,7 @@ def scan_archive(path: Path, law: str, member_inns: set[str],
                 with zipfile.ZipFile(io.BytesIO(zf.read(info))) as inner:
                     walk(inner, f"{prefix}{name}/")
             elif name.lower().endswith(".xml"):
-                c, w = scan_xml(zf.read(info), law, member_inns, wins, f"{prefix}{name}")
+                c, w = scan_xml(zf.read(info), law, member_inns, wins, f"{prefix}{name}", lookup)
                 contracts.extend(c)
                 protocol_wins.extend(w)
 

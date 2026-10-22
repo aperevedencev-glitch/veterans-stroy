@@ -341,3 +341,32 @@ def protocol_types_from_nsi(xml_blobs: list[bytes]) -> tuple[list[str], list[tup
             uniq.append((code, name))
     protocols = [c for c, n in uniq if "protocol" in c.lower() or "протокол" in n.lower()]
     return protocols, uniq
+
+
+# ------------------------------------------- договор → протоколы по номеру закупки
+CONSTRUCTION_OKPD2 = ("41.", "42.", "43.")
+
+
+def contract_candidate(data: bytes, okpd_prefixes: tuple[str, ...] = CONSTRUCTION_OKPD2) -> list[dict]:
+    """Договор 223-ФЗ без поставщика, но со строительными позициями ОКПД2.
+
+    Возвращает для каждого такого договора номер закупки — по нему сервис ЕИС
+    отдаёт протоколы (getDocsByReestrNumber, подсистема RI223).
+    """
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return []
+    if not is_contract223(root):
+        return []
+    out = []
+    for cd in _find_all(root, "contractData"):
+        notice = _text(cd, "purchaseNoticeInfo", "purchaseNoticeNumber")
+        if not notice:
+            continue          # закупка без извещения — протокола нет
+        codes = [(c.text or "").strip() for e in _find_all(cd, "okpd2") for c in e if _local(c.tag) == "code"]
+        if okpd_prefixes and not any(code.startswith(okpd_prefixes) for code in codes):
+            continue
+        out.append({"notice": notice, "reg": _text(cd, "contractRegNumber") or _text(cd, "registrationNumber"),
+                    "okpd2": codes[:5]})
+    return out

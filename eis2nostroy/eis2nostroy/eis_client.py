@@ -92,6 +92,40 @@ class EisClient:
   </soapenv:Body>
 </soapenv:Envelope>"""
 
+    def build_reestr_request(self, subsystem: str, number: str, law: str = "223") -> str:
+        token_tag = self.cfg.eis.get("token_header", "individualPerson_token")
+        return f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ws="{NS[law]}">
+  <soapenv:Header>
+    <{token_tag}>{escape(self.cfg.token)}</{token_tag}>
+  </soapenv:Header>
+  <soapenv:Body>
+    <ws:getDocsByReestrNumberRequest>
+      <index>
+        <id>{uuid.uuid4()}</id>
+        <createDateTime>{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}</createDateTime>
+        <mode>{self.cfg.eis.get('mode', 'PROD')}</mode>
+      </index>
+      <selectionParams>
+        <subsystemType>{escape(subsystem)}</subsystemType>
+        <reestrNumber>{escape(number)}</reestrNumber>
+      </selectionParams>
+    </ws:getDocsByReestrNumberRequest>
+  </soapenv:Body>
+</soapenv:Envelope>"""
+
+    def fetch_by_reestr(self, subsystem: str, number: str, law: str = "223") -> list[Path]:
+        """Все документы по реестровому номеру (для RI223 — закупка и её протоколы), с кэшем."""
+        cache = self.cfg.path("cache_dir") or Path("data/cache")
+        folder = cache / "byreestr" / subsystem / number
+        done = folder / ".done"
+        if done.exists():
+            return sorted(folder.glob("*.zip"))
+        urls = parse_archive_urls(self._post(law, self.build_reestr_request(subsystem, number, law)))
+        paths = [self.download_archive(u, folder / f"part{i:03d}.zip") for i, u in enumerate(urls)]
+        folder.mkdir(parents=True, exist_ok=True)
+        done.write_text(datetime.now().isoformat())
+        return paths
+
     def _post(self, endpoint_law: str, body: str) -> bytes:
         self._throttle()
         token_tag = self.cfg.eis.get("token_header", "individualPerson_token")
