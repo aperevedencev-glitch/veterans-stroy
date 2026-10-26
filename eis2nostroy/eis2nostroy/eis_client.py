@@ -10,7 +10,9 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 import uuid
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
@@ -43,6 +45,7 @@ class EisClient:
             self.http.trust_env = False
         self._last_call = 0.0
         self._last_dl = 0.0
+        self._lock = threading.Lock()
         if not cfg.token:
             log.warning("Токен ЕИС не задан: сервис отдачи информации ответит отказом")
 
@@ -167,10 +170,22 @@ class EisClient:
                 pause = min(pause * 2, 300)
 
     def _throttle(self):
-        wait = float(self.cfg.eis.get("min_interval_sec", 1.5)) - (time.monotonic() - self._last_call)
-        if wait > 0:
-            time.sleep(wait)
-        self._last_call = time.monotonic()
+        """Не чаще min_interval_sec между запросами — и из нескольких потоков тоже."""
+        interval = float(self.cfg.eis.get("min_interval_sec", 1.5))
+        with self._lock:
+            now = time.monotonic()
+            slot = max(now, self._last_call + interval)
+            self._last_call = slot
+        if slot > now:
+            time.sleep(slot - now)
+
+    def _parallel(self, func, items):
+        """Запросы к ЕИС в несколько потоков (post_workers), в пределах общего лимита частоты."""
+        workers = max(1, int(self.cfg.eis.get("post_workers", 3)))
+        if workers == 1 or len(items) < 2:
+            return [func(x) for x in items]
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return list(pool.map(func, items))
 
     def request_archives(self, feed: Feed, region: str, day: date, doc_type: str) -> list[str]:
         """Возвращает ссылки на архивы (их может быть несколько)."""
@@ -247,21 +262,24 @@ class EisClient:
     def prefetch_day(self, feed: Feed, regions: list[str], day: date, errors: list[str] | None = None) -> int:
         """Заказать архивы за день по всем регионам и скачать их пакетом. Возвращает число новых папок."""
         cache = self.cfg.path("cache_dir") or Path("data/cache")
-        groups: dict[Path, list[str]] = {}
+        todo = []
         for region in regions:
             for doc_type in feed.document_types:
                 folder = cache / feed.subsystem / region / day.isoformat() / doc_type
-                if (folder / ".done").exists():
-                    continue
-                try:
-                    urls = self.request_archives(feed, region, day, doc_type)
-                except (EisError, OSError, ET.ParseError) as exc:
-                    msg = f"{day} {feed.subsystem} регион {region}: {exc}"
-                    log.error(msg)
-                    if errors is not None:
-                        errors.append(msg)
-                    continue
-                groups[folder] = urls
+                if not (folder / ".done").exists():
+                    todo.append((region, doc_type, folder))
+
+        def ask(item):
+            region, doc_type, folder = item
+            try:
+                return folder, self.request_archives(feed, region, day, doc_type)
+            except (EisError, OSError, ET.ParseError) as exc:
+                msg = f"{day} {feed.subsystem} регион {region}: {exc}"
+                log.error(msg)
+                if errors is not None:
+                    errors.append(msg)
+                return folder, None
+        groups = {f: u for f, u in self._parallel(ask, todo) if u is not None}
         if groups:
             self.download_many(groups)
         return len(groups)
@@ -269,15 +287,18 @@ class EisClient:
     def prefetch_reestr(self, subsystem: str, numbers: list[str], law: str = "223") -> None:
         """Заказать документы по многим реестровым номерам и скачать их пакетом."""
         cache = self.cfg.path("cache_dir") or Path("data/cache")
-        groups: dict[Path, list[str]] = {}
-        for number in numbers:
+        todo = [n for n in numbers if not (cache / "byreestr" / subsystem / n / ".done").exists()]
+        if todo:
+            log.info("Запрашиваю протоколы по %s закупкам", len(todo))
+
+        def ask(number):
             folder = cache / "byreestr" / subsystem / number
-            if (folder / ".done").exists():
-                continue
             try:
-                groups[folder] = parse_archive_urls(self._post(law, self.build_reestr_request(subsystem, number, law)))
+                return folder, parse_archive_urls(self._post(law, self.build_reestr_request(subsystem, number, law)))
             except (EisError, OSError, ET.ParseError) as exc:
                 log.error("закупка %s: %s", number, exc)
+                return folder, None
+        groups = {f: u for f, u in self._parallel(ask, todo) if u is not None}
         if groups:
             self.download_many(groups)
 

@@ -228,3 +228,27 @@ def test_fetch_prefetches_and_waits_in_parallel(tmp_path, monkeypatch):
     assert errors == [] and found == 1
     # 4 архива за день и 1 закупка ждали параллельно: по одной паузе на пакет, а не на каждый архив
     assert sleeps.count(20.0) == 2
+
+
+def test_parallel_requests_keep_rate_limit(tmp_path, monkeypatch):
+    """В несколько потоков запросы идут не чаще min_interval_sec."""
+    import time as t
+    from eis2nostroy.config import load_config
+    from eis2nostroy.eis_client import EisClient
+    cfg_text = (Path(__file__).parents[1] / "config.example.toml").read_text(encoding="utf-8")
+    (tmp_path / "c.toml").write_text(cfg_text.replace("min_interval_sec = 0.75", "min_interval_sec = 0.05"), encoding="utf-8")
+    client = EisClient(load_config(tmp_path / "c.toml"))
+    stamps = []
+
+    def call(x):
+        client._throttle()
+        stamps.append(t.monotonic())
+        t.sleep(0.12)  # «медленный ответ ЕИС»
+        return x
+    start = t.monotonic()
+    assert sorted(client._parallel(call, list(range(12)))) == list(range(12))
+    stamps.sort()
+    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+    assert min(gaps) >= 0.045
+    # три потока: быстрее, чем по одному (12 × 0.12 = 1.44 с)
+    assert t.monotonic() - start < 1.0
