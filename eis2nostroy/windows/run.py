@@ -1,7 +1,8 @@
 """Запуск модуля на компьютере ассоциации.
 
     python run.py probe        — проверка токена на одной закупке (1–2 минуты)
-    python run.py load 2026    — загрузка протоколов и договоров 223-ФЗ за год
+    python run.py load 2026    — загрузка за год: сначала 223-ФЗ, затем 44-ФЗ и 615-ПП
+    python run.py load 2026 223 — загрузка за год только по 223-ФЗ
     python run.py reconcile    — сверка и Excel для оператора
     python run.py rebuild      — пересобрать договоры из скачанного (отбор по ГрК) и сверить
 
@@ -76,7 +77,10 @@ def main():
         year = int(sys.argv[2]) if len(sys.argv) > 2 else date.today().year
         start = date(year, 1, 1)
         end = min(date(year, 12, 31), date.today() - timedelta(days=1))
-        rc = cli.main(["-c", "config.toml", "fetch", "--from", start.isoformat(), "--to", end.isoformat()])
+        args = ["-c", "config.toml", "fetch", "--from", start.isoformat(), "--to", end.isoformat()]
+        for law in sys.argv[3:]:
+            args += ["--law", law]
+        rc = cli.main(args)
         cli.main(["-c", "config.toml", "reconcile"])
         return rc
     if cmd == "reconcile":

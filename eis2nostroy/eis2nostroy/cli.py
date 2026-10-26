@@ -116,7 +116,8 @@ def _make_lookup(client: EisClient, inns: set[str], stats: dict, errors: list[st
     return lookup
 
 
-def cmd_fetch(cfg: Config, start: date, end: date, newest_first: bool = True) -> tuple[int, list[str]]:
+def cmd_fetch(cfg: Config, start: date, end: date, newest_first: bool = True,
+              laws: set[str] | None = None) -> tuple[int, list[str]]:
     """Договоры 223-ФЗ и протоколы закупок за период, от свежих дат к старым.
 
     Основной путь: договор без поставщика со строительными ОКПД2 → протоколы этой
@@ -131,6 +132,9 @@ def cmd_fetch(cfg: Config, start: date, end: date, newest_first: bool = True) ->
     found, wins_found, errors = 0, 0, []
     # протоколы, затем 223-ФЗ (главное для сверки), затем 44-ФЗ и 615-ПП
     feeds = sorted(cfg.feeds, key=lambda f: 0 if f.kind == "protocol" else (1 if f.law == "223" else 2))
+    if laws:
+        feeds = [f for f in feeds if f.law in laws]
+        log.info("Загрузка только по закону: %s", ", ".join(sorted(laws)))
     days = list(_days(start, end))
     if newest_first:
         days.reverse()
@@ -332,6 +336,8 @@ def main(argv=None) -> int:
     f = sub.add_parser("fetch", help="скачать договоры из ЕИС за период")
     f.add_argument("--from", dest="start", required=True, type=date.fromisoformat)
     f.add_argument("--to", dest="end", default=date.today(), type=date.fromisoformat)
+    f.add_argument("--law", action="append", choices=["44", "223", "615"],
+                   help="только этот закон (можно повторять)")
     i = sub.add_parser("import-archives", help="разобрать заранее скачанные архивы ЕИС")
     i.add_argument("--law", required=True, choices=["44", "223", "615"])
     i.add_argument("folder", type=Path)
@@ -351,7 +357,7 @@ def main(argv=None) -> int:
     cfg = load_config(args.config)
     try:
         if args.cmd == "fetch":
-            _, errors = cmd_fetch(cfg, args.start, args.end)
+            _, errors = cmd_fetch(cfg, args.start, args.end, laws=set(args.law or []))
             return 1 if errors else 0
         if args.cmd == "import-archives":
             cmd_import_archives(cfg, args.law, args.folder)
