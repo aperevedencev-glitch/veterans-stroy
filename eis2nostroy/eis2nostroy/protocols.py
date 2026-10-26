@@ -253,6 +253,9 @@ def contracts_from_223(data: bytes, index: WinIndex, raw_file: str = "") -> list
         cust_inn, cust_name = _org(_child(cd, "customer"))
         reg = _text(cd, "contractRegNumber") or _text(cd, "registrationNumber")
         end = to_date(_text(cd, "endExecutionDate"))
+        codes = [(c.text or "").strip() for e in _find_all(cd, "okpd2") for c in e if _local(c.tag) == "code"]
+        from .grk import classify as grk_classify
+        grk_cls, grk_note = grk_classify("", codes)
         for w in wins:
             out.append(Contract(
                 source="eis_223",
@@ -277,6 +280,9 @@ def contracts_from_223(data: bytes, index: WinIndex, raw_file: str = "") -> list
                     "contract_number": _text(cd, "name"),
                     "end_date": end.isoformat() if end else "",
                     "winner_reason": w.reason,
+                    "okpd2": sorted(set(codes))[:5],
+                    "grk": grk_cls,
+                    "grk_note": grk_note,
                 },
             ))
     return out
@@ -344,6 +350,7 @@ def protocol_types_from_nsi(xml_blobs: list[bytes]) -> tuple[list[str], list[tup
 
 
 # ------------------------------------------- договор → протоколы по номеру закупки
+from .grk import is_construction  # noqa: E402
 CONSTRUCTION_OKPD2 = ("41.", "42.", "43.")
 
 
@@ -365,8 +372,10 @@ def contract_candidate(data: bytes, okpd_prefixes: tuple[str, ...] = CONSTRUCTIO
         if not notice:
             continue          # закупка без извещения — протокола нет
         codes = [(c.text or "").strip() for e in _find_all(cd, "okpd2") for c in e if _local(c.tag) == "code"]
-        if okpd_prefixes and not any(code.startswith(okpd_prefixes) for code in codes):
-            continue
+        ok = (is_construction if okpd_prefixes == CONSTRUCTION_OKPD2
+              else (lambda code: code.startswith(okpd_prefixes)))
+        if okpd_prefixes and not any(ok(code) for code in codes):
+            continue      # не строительные работы по ГрК (в т.ч. 41.1 — разработка проектов)
         out.append({"notice": notice, "reg": _text(cd, "contractRegNumber") or _text(cd, "registrationNumber"),
                     "okpd2": codes[:5]})
     return out

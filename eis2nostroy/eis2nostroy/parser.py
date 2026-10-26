@@ -16,6 +16,8 @@ from pathlib import Path
 from .models import Contract
 from typing import Callable
 
+from .grk import classify as grk_classify
+
 from .protocols import (ProtocolWin, WinIndex, contract_candidate, contracts_from_223, is_protocol,
                         parse_protocol_xml)
 from .tabular import to_date, to_float
@@ -62,6 +64,25 @@ def _contains(parent: ET.Element, child: ET.Element) -> bool:
     return any(x is child for x in parent.iter())
 
 
+def grk_info(root: ET.Element) -> dict:
+    """ИКЗ, коды ОКПД2 позиций и отнесение к ГрК (см. grk.py)."""
+    ikz = ""
+    for e in root.iter():
+        if _local(e.tag) in ("ikz", "purchasecode", "identificationcode") and e.text:
+            digits = "".join(ch for ch in e.text if ch.isdigit())
+            if len(digits) == 36:
+                ikz = digits
+                break
+    okpd = []
+    for e in root.iter():
+        if "okpd" in _local(e.tag):
+            for c in e.iter():
+                if _local(c.tag) in ("code", "okpdcode") and c.text and c.text.strip()[:2].isdigit():
+                    okpd.append(c.text.strip())
+    cls, note = grk_classify(ikz, okpd)
+    return {"ikz": ikz, "okpd2": sorted(set(okpd))[:5], "grk": cls, "grk_note": note}
+
+
 def parse_contract_xml(data: bytes, law: str, member_inns: set[str], raw_file: str = "") -> list[Contract]:
     try:
         root = ET.fromstring(data)
@@ -96,6 +117,7 @@ def parse_contract_xml(data: bytes, law: str, member_inns: set[str], raw_file: s
         if _local(e.tag) in PRICE and e.text and to_float(e.text) is not None:
             price_el = e
             break
+    info = grk_info(root)
     result = []
     for inn in sorted(hits):
         result.append(Contract(
@@ -111,6 +133,7 @@ def parse_contract_xml(data: bytes, law: str, member_inns: set[str], raw_file: s
             subject=_first_text(root, SUBJECT)[:500],
             competitive=competitive,
             raw_file=raw_file,
+            extra=dict(info),
         ))
     return result
 

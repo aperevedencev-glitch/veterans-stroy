@@ -80,6 +80,18 @@ def _days(start: date, end: date):
         d += timedelta(days=1)
 
 
+def _grk_only(cfg: Config) -> bool:
+    return bool(cfg.raw.get("grk", {}).get("only", True))
+
+
+def _keep(cfg: Config, contracts: list) -> list:
+    """Только договоры по Градостроительному кодексу (если [grk] only = true)."""
+    if not _grk_only(cfg):
+        return contracts
+    from .grk import NOT_GRK
+    return [c for c in contracts if c.extra.get("grk") != NOT_GRK]
+
+
 def _make_lookup(client: EisClient, inns: set[str], stats: dict, errors: list[str]):
     """Номер закупки → победы членов СРО в её протоколах (один запрос в ЕИС, с кэшем)."""
     memo: dict[str, list] = {}
@@ -143,7 +155,7 @@ def cmd_fetch(cfg: Config, start: date, end: date, newest_first: bool = True) ->
                 try:
                     for archive in client.fetch_day(feed, region, day):
                         contracts, wins = scan_archive(archive, feed.law, inns, index, use_lookup)
-                        found += store.add(contracts)
+                        found += store.add(_keep(cfg, contracts))
                         wins_found += wins_store.add(wins)
                 except (EisError, OSError) as exc:
                     msg = f"{day} {feed.subsystem} регион {region}: {exc}"
@@ -239,9 +251,51 @@ def cmd_probe(cfg: Config, protocol_day: date, contract_day: date, region: str,
     return ok
 
 
+def cmd_rebuild(cfg: Config) -> int:
+    """Пересобрать найденные договоры из уже скачанных архивов (без запросов в ЕИС).
+
+    Нужен после изменения правил разбора — например, отбора по ГрК: старые записи
+    без ИКЗ и признака ГрК заменяются новыми.
+    """
+    members = load_members(cfg.path("members"))
+    inns = set(members)
+    cache = cfg.path("cache_dir") or Path("data/cache")
+    store_path = _store(cfg).path
+    if store_path.exists():
+        store_path.replace(store_path.with_suffix(".jsonl.bak"))
+    store = _store(cfg)
+    index = WinIndex(_wins(cfg).load())
+
+    def offline_lookup(notice: str) -> list:
+        folder = cache / "byreestr" / "RI223" / notice
+        if not (folder / ".done").exists():
+            return []
+        wins = []
+        for archive in sorted(folder.glob("*.zip")):
+            with zipfile.ZipFile(archive) as zf:
+                for name in zf.namelist():
+                    if name.lower().endswith(".xml"):
+                        wins += parse_protocol_xml(zf.read(name), inns, f"{archive.name}:{name}")
+        return wins
+
+    total = 0
+    for feed in cfg.feeds:
+        if feed.kind == "protocol":
+            continue
+        lookup = offline_lookup if feed.lookup_protocols else None
+        for z in sorted((cache / feed.subsystem).rglob("*.zip")):
+            if z.parent.name not in feed.document_types:
+                continue
+            contracts, wins = scan_archive(z, feed.law, inns, index, lookup)
+            total += store.add(_keep(cfg, contracts))
+            _wins(cfg).add(wins)
+    log.info("Пересобрано договоров членов: %s (прежний файл сохранён как .bak)", total)
+    return total
+
+
 def cmd_reconcile(cfg: Config):
     members = load_members(cfg.path("members"))
-    contracts = _store(cfg).load()
+    contracts = _keep(cfg, _store(cfg).load())
     pending = unlinked_wins(_wins(cfg).load(), contracts)
     if pending:
         log.info("Побед по протоколам без найденного договора: %s", len(pending))
@@ -282,6 +336,7 @@ def main(argv=None) -> int:
     i.add_argument("--law", required=True, choices=["44", "223", "615"])
     i.add_argument("folder", type=Path)
     sub.add_parser("reconcile", help="сверить источники и подготовить выгрузки")
+    sub.add_parser("rebuild", help="пересобрать договоры из скачанных архивов без запросов в ЕИС")
     pr = sub.add_parser("probe", help="проверить токен и настройки 223-ФЗ на одной закупке")
     pr.add_argument("--protocol-day", default="2024-10-28", type=date.fromisoformat)
     pr.add_argument("--contract-day", default="2024-12-24", type=date.fromisoformat)
@@ -302,6 +357,10 @@ def main(argv=None) -> int:
             cmd_import_archives(cfg, args.law, args.folder)
             return 0
         if args.cmd == "reconcile":
+            cmd_reconcile(cfg)
+            return 0
+        if args.cmd == "rebuild":
+            cmd_rebuild(cfg)
             cmd_reconcile(cfg)
             return 0
         if args.cmd == "probe":

@@ -3,6 +3,7 @@
     python run.py probe        — проверка токена на одной закупке (1–2 минуты)
     python run.py load 2026    — загрузка протоколов и договоров 223-ФЗ за год
     python run.py reconcile    — сверка и Excel для оператора
+    python run.py rebuild      — пересобрать договоры из скачанного (отбор по ГрК) и сверить
 
 Токен ЕИС спрашивается при запуске и никуда не записывается.
 Можно заранее задать переменную окружения EIS_TOKEN.
@@ -80,6 +81,9 @@ def main():
         return rc
     if cmd == "reconcile":
         return cli.main(["-c", "config.toml", "reconcile"])
+    if cmd == "rebuild":
+        # без запросов в ЕИС: пересобрать договоры из скачанного с отбором по ГрК
+        return cli.main(["-c", "config.toml", "rebuild"])
     print(__doc__)
     return 2
 

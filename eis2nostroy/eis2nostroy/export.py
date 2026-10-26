@@ -31,6 +31,9 @@ NOSTROY_FIELDS = [
     ("sign_date", "Дата заключения"),
     ("price", "Цена договора, ₽"),
     ("subject", "Предмет договора"),
+    ("ikz", "ИКЗ (44-ФЗ)"),
+    ("grk", "Градостроительный кодекс"),
+    ("grk_note", "Основание отнесения к ГрК"),
     ("sources", "Источники"),
 ]
 
@@ -49,6 +52,9 @@ def _row(r: ReconciledRecord) -> dict:
         "sign_date": c.sign_date.strftime("%d.%m.%Y") if c.sign_date else "",
         "price": c.price,
         "subject": c.subject,
+        "ikz": c.extra.get("ikz", ""),
+        "grk": c.extra.get("grk", ""),
+        "grk_note": c.extra.get("grk_note", ""),
         "sources": ", ".join(r.sources),
     }
 
@@ -65,7 +71,7 @@ def write_operator_workbook(records: list[ReconciledRecord], path: Path, sro_nam
         ws.append([f"Сформировано {datetime.now():%d.%m.%Y %H:%M}. Записей: {len(items)}"])
         ws.append([])
         cols = ["Статус", "Действие оператора"] + [h for _, h in NOSTROY_FIELDS] + ["Замечания"]
-        widths = [16, 30, 14, 34, 10, 10, 24, 22, 14, 36, 12, 16, 40, 18, 40]
+        widths = [16, 30, 14, 34, 10, 10, 24, 22, 14, 36, 12, 16, 40, 38, 14, 40, 18, 40]
         ws.append(cols)
         for j, w in enumerate(widths, 1):
             cell = ws.cell(4, j)
