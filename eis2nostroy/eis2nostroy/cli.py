@@ -116,6 +116,16 @@ def _make_lookup(client: EisClient, inns: set[str], stats: dict, errors: list[st
     return lookup
 
 
+def _cached_day(cfg: Config, feed, region: str, day: date) -> list[Path]:
+    cache = cfg.path("cache_dir") or Path("data/cache")
+    out: list[Path] = []
+    for doc_type in feed.document_types:
+        folder = cache / feed.subsystem / region / day.isoformat() / doc_type
+        if (folder / ".done").exists():
+            out += sorted(folder.glob("*.zip"))
+    return out
+
+
 LAW_ORDER = {"223": 1, "44": 2, "615": 3}
 
 
@@ -150,6 +160,7 @@ def cmd_fetch(cfg: Config, start: date, end: date, newest_first: bool = True,
     win_regions: list[str] = []
     stats: dict = {}
     lookup = _make_lookup(client, inns, stats, errors)
+    prefetch = bool(cfg.eis.get("prefetch", True))
     for feed in feeds:
         if feed.kind != "protocol" and index is None:
             all_wins = wins_store.load()
@@ -163,6 +174,20 @@ def cmd_fetch(cfg: Config, start: date, end: date, newest_first: bool = True,
         use_lookup = lookup if (feed.lookup_protocols and feed.law == "223") else None
         for day in days:
             before = (found, wins_found, stats.get("lookups", 0))
+            if prefetch:
+                # 1) заказать архивы за день по всем регионам и забрать их пакетом
+                client.prefetch_day(feed, regions, day, errors)
+                # 2) собрать номера закупок для проверки протоколов и тоже забрать пакетом
+                if use_lookup is not None:
+                    notices: list[str] = []
+                    recorder = lambda n: notices.append(n) or []  # noqa: E731
+                    for region in regions:
+                        for archive in _cached_day(cfg, feed, region, day):
+                            try:
+                                scan_archive(archive, feed.law, inns, index, recorder)
+                            except (OSError, zipfile.BadZipFile):
+                                pass
+                    client.prefetch_reestr("RI223", sorted(set(notices)))
             for region in regions:
                 try:
                     for archive in client.fetch_day(feed, region, day):

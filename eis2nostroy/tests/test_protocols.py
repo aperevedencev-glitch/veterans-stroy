@@ -175,3 +175,56 @@ def test_client_waits_when_network_drops(tmp_path, monkeypatch):
             raise requests.ConnectionError("proxy down")
         return "ok"
     assert EisClient(cfg)._net(flaky) == "ok" and len(calls) == 3
+
+
+def test_fetch_prefetches_and_waits_in_parallel(tmp_path, monkeypatch):
+    """Архивы за день заказываются сразу, неготовые (404) забираются по кругу."""
+    import re
+    from datetime import date as d
+    from openpyxl import Workbook
+    from eis2nostroy import cli, eis_client
+    from eis2nostroy.config import load_config
+    wb = Workbook(); ws = wb.active
+    ws.append(["ИНН", "Наименование"]); ws.append([VOLGO, "ООО ВОЛГОГРАДМОНТАЖ"])
+    (tmp_path / "data").mkdir(); wb.save(tmp_path / "data" / "members.xlsx")
+    cfg_text = (Path(__file__).parents[1] / "config.example.toml").read_text(encoding="utf-8")
+    cfg_text = cfg_text.replace("min_interval_sec = 0.75", "min_interval_sec = 0")
+    (tmp_path / "config.toml").write_text(cfg_text, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config(tmp_path / "config.toml")
+    monkeypatch.setenv("EIS_TOKEN", "t")
+    for f in cfg.feeds:
+        if f.law == "223":
+            f.regions = ["34", "50"]
+    sleeps = []
+    monkeypatch.setattr(eis_client.time, "sleep", lambda s: sleeps.append(s))
+    zc = _zip({"c.xml": CONTRACT}); zp = _zip({"p.xml": PROTOCOL})
+    empty = _zip({})
+    hits: dict[str, int] = {}
+
+    class R:
+        def __init__(self, code, content): self.status_code, self.content, self.text = code, content, ""
+
+    class S:
+        trust_env = True
+        def post(self, url, data, headers, timeout):
+            body = data.decode()
+            if "reestrNumber" in body:
+                u = "https://x/reestr/" + re.search(r"<reestrNumber>(\d+)", body).group(1)
+            else:
+                reg = re.search(r"<orgRegion>(\d+)", body).group(1)
+                dt = re.search(r"documentType223>(\w+)<", body).group(1)
+                u = f"https://x/day/{reg}/{dt}"
+            return R(200, f"<r><archiveUrl>{u}</archiveUrl></r>".encode())
+        def get(self, url, headers, timeout):
+            hits[url] = hits.get(url, 0) + 1
+            if hits[url] == 1:          # первый раз архив «ещё не готов»
+                return R(404, b"x")
+            if "/reestr/" in url:
+                return R(200, zp)
+            return R(200, zc if url.endswith("/34/contractCutted") else empty)
+    monkeypatch.setattr(eis_client.requests, "Session", S)
+    found, errors = cli.cmd_fetch(cfg, d(2024, 12, 24), d(2024, 12, 24), laws={"223"})
+    assert errors == [] and found == 1
+    # 4 архива за день и 1 закупка ждали параллельно: по одной паузе на пакет, а не на каждый архив
+    assert sleeps.count(20.0) == 2

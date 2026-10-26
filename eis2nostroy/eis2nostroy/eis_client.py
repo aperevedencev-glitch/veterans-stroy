@@ -42,6 +42,7 @@ class EisClient:
         if not cfg.eis.get("use_system_proxy", True) and hasattr(self.http, "trust_env"):
             self.http.trust_env = False
         self._last_call = 0.0
+        self._last_dl = 0.0
         if not cfg.token:
             log.warning("Токен ЕИС не задан: сервис отдачи информации ответит отказом")
 
@@ -195,6 +196,89 @@ class EisClient:
             log.info("Архив ещё не готов (%s), попытка %s из %s", last, attempt, retries)
             time.sleep(pause)
         raise EisError(f"Архив не скачан: {url} ({last})")
+
+    # ------------------------------------------------------ пакетная загрузка
+    # ЕИС готовит архив не сразу: по ссылке какое-то время отвечает 404.
+    # Поэтому сначала заказываем все архивы за день, а потом забираем готовые
+    # по кругу — ожидание идёт параллельно, а не по очереди.
+
+    def _try_download(self, url: str, dest: Path) -> bool:
+        wait = float(self.cfg.eis.get("download_interval_sec", 0.3)) - (time.monotonic() - self._last_dl)
+        if wait > 0:
+            time.sleep(wait)
+        self._last_dl = time.monotonic()
+        token_tag = self.cfg.eis.get("token_header", "individualPerson_token")
+        r = self._net(lambda: self.http.get(url, headers={token_tag: self.cfg.token}, timeout=120))
+        if r.status_code == 200 and r.content[:2] == b"PK":
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(r.content)
+            return True
+        if r.status_code == 429:
+            log.warning("ЕИС просит снизить частоту (HTTP 429), пауза 60 с")
+            time.sleep(60)
+        return False
+
+    def download_many(self, groups: dict[Path, list[str]]) -> dict[Path, list[Path]]:
+        """groups: папка → ссылки. Возвращает скачанные папки (в каждой ставится .done)."""
+        jobs = [(folder, url, folder / f"part{i:03d}.zip")
+                for folder, urls in groups.items() for i, url in enumerate(urls)]
+        pending = [j for j in jobs if not (j[2].exists() and j[2].stat().st_size > 0)]
+        rounds = int(self.cfg.eis.get("archive_rounds", 12))
+        pause = float(self.cfg.eis.get("archive_retry_wait_sec", 20))
+        for rnd in range(1, rounds + 1):
+            pending = [j for j in pending if not self._try_download(j[1], j[2])]
+            if not pending:
+                break
+            if rnd < rounds:
+                log.info("Архивов ещё не готово: %s из %s, жду %.0f с", len(pending), len(jobs), pause)
+                time.sleep(pause)
+        failed = {j[0] for j in pending}
+        done: dict[Path, list[Path]] = {}
+        for folder, urls in groups.items():
+            if folder in failed:
+                continue
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / ".done").write_text(datetime.now().isoformat())
+            done[folder] = sorted(folder.glob("*.zip"))
+        if failed:
+            log.warning("Не дождались архивов в %s папках — они будут запрошены заново", len(failed))
+        return done
+
+    def prefetch_day(self, feed: Feed, regions: list[str], day: date, errors: list[str] | None = None) -> None:
+        """Заказать архивы за день по всем регионам и скачать их пакетом."""
+        cache = self.cfg.path("cache_dir") or Path("data/cache")
+        groups: dict[Path, list[str]] = {}
+        for region in regions:
+            for doc_type in feed.document_types:
+                folder = cache / feed.subsystem / region / day.isoformat() / doc_type
+                if (folder / ".done").exists():
+                    continue
+                try:
+                    urls = self.request_archives(feed, region, day, doc_type)
+                except (EisError, OSError, ET.ParseError) as exc:
+                    msg = f"{day} {feed.subsystem} регион {region}: {exc}"
+                    log.error(msg)
+                    if errors is not None:
+                        errors.append(msg)
+                    continue
+                groups[folder] = urls
+        if groups:
+            self.download_many(groups)
+
+    def prefetch_reestr(self, subsystem: str, numbers: list[str], law: str = "223") -> None:
+        """Заказать документы по многим реестровым номерам и скачать их пакетом."""
+        cache = self.cfg.path("cache_dir") or Path("data/cache")
+        groups: dict[Path, list[str]] = {}
+        for number in numbers:
+            folder = cache / "byreestr" / subsystem / number
+            if (folder / ".done").exists():
+                continue
+            try:
+                groups[folder] = parse_archive_urls(self._post(law, self.build_reestr_request(subsystem, number, law)))
+            except (EisError, OSError, ET.ParseError) as exc:
+                log.error("закупка %s: %s", number, exc)
+        if groups:
+            self.download_many(groups)
 
     def fetch_day(self, feed: Feed, region: str, day: date) -> list[Path]:
         """Все архивы подсистемы за день по региону, с кэшем на диске."""
