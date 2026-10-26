@@ -283,16 +283,23 @@ def cmd_rebuild(cfg: Config) -> int:
         return wins
 
     total = 0
+    wins_store = _wins(cfg)
     for feed in cfg.feeds:
         if feed.kind == "protocol":
             continue
         lookup = offline_lookup if feed.lookup_protocols else None
-        for z in sorted((cache / feed.subsystem).rglob("*.zip")):
-            if z.parent.name not in feed.document_types:
-                continue
+        archives = [z for z in sorted((cache / feed.subsystem).rglob("*.zip"))
+                    if z.parent.name in feed.document_types]
+        log.info("%s: архивов в кэше %s", feed.subsystem, len(archives))
+        for n, z in enumerate(archives, 1):
             contracts, wins = scan_archive(z, feed.law, inns, index, lookup)
-            total += store.add(_keep(cfg, contracts))
-            _wins(cfg).add(wins)
+            kept = _keep(cfg, contracts)
+            if kept:
+                total += store.add(kept)
+            if wins:
+                wins_store.add(wins)
+            if n % 500 == 0 or n == len(archives):
+                log.info("%s: разобрано %s из %s, договоров членов %s", feed.subsystem, n, len(archives), total)
     log.info("Пересобрано договоров членов: %s (прежний файл сохранён как .bak)", total)
     return total
 
