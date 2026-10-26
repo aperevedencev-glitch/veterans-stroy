@@ -116,6 +116,14 @@ def _make_lookup(client: EisClient, inns: set[str], stats: dict, errors: list[st
     return lookup
 
 
+LAW_ORDER = {"223": 1, "44": 2, "615": 3}
+
+
+def _ordered(feeds):
+    """Порядок обработки: протоколы, затем 223-ФЗ, 44-ФЗ, 615-ПП."""
+    return sorted(feeds, key=lambda f: 0 if f.kind == "protocol" else LAW_ORDER.get(f.law, 9))
+
+
 def cmd_fetch(cfg: Config, start: date, end: date, newest_first: bool = True,
               laws: set[str] | None = None) -> tuple[int, list[str]]:
     """Договоры 223-ФЗ и протоколы закупок за период, от свежих дат к старым.
@@ -130,8 +138,8 @@ def cmd_fetch(cfg: Config, start: date, end: date, newest_first: bool = True,
     _apply_protocol_types(cfg)
     store, wins_store = _store(cfg), _wins(cfg)
     found, wins_found, errors = 0, 0, []
-    # протоколы, затем 223-ФЗ (главное для сверки), затем 44-ФЗ и 615-ПП
-    feeds = sorted(cfg.feeds, key=lambda f: 0 if f.kind == "protocol" else (1 if f.law == "223" else 2))
+    # протоколы, затем 223-ФЗ (главное для сверки), 44-ФЗ, 615-ПП
+    feeds = _ordered(cfg.feeds)
     if laws:
         feeds = [f for f in feeds if f.law in laws]
         log.info("Загрузка только по закону: %s", ", ".join(sorted(laws)))
@@ -286,7 +294,7 @@ def cmd_rebuild(cfg: Config) -> int:
 
     total = 0
     wins_store = _wins(cfg)
-    for feed in cfg.feeds:
+    for feed in _ordered(cfg.feeds):
         if feed.kind == "protocol":
             continue
         lookup = offline_lookup if feed.lookup_protocols else None
