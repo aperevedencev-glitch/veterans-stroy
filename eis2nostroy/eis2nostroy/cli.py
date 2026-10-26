@@ -266,7 +266,9 @@ def cmd_rebuild(cfg: Config) -> int:
     cache = cfg.path("cache_dir") or Path("data/cache")
     store_path = _store(cfg).path
     if store_path.exists():
-        store_path.replace(store_path.with_suffix(".jsonl.bak"))
+        # каждая пересборка сохраняет свою копию: повторный запуск не затирает прежнюю
+        from datetime import datetime
+        store_path.replace(store_path.with_name(f"{store_path.stem}_{datetime.now():%Y%m%d_%H%M%S}.bak.jsonl"))
     store = _store(cfg)
     index = WinIndex(_wins(cfg).load())
 
@@ -300,7 +302,7 @@ def cmd_rebuild(cfg: Config) -> int:
                 wins_store.add(wins)
             if n % 500 == 0 or n == len(archives):
                 log.info("%s: разобрано %s из %s, договоров членов %s", feed.subsystem, n, len(archives), total)
-    log.info("Пересобрано договоров членов: %s (прежний файл сохранён как .bak)", total)
+    log.info("Пересобрано договоров членов: %s (прежний файл сохранён рядом с пометкой .bak)", total)
     return total
 
 
