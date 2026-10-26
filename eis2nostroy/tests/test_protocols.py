@@ -157,3 +157,21 @@ def test_candidate_needs_construction_okpd():
     assert contract_candidate(CONTRACT) == [{"notice": "32414075550", "reg": "53435098928240001840000",
                                              "okpd2": ["42.21.22.110"]}]
     assert contract_candidate(CONTRACT, ("62.",)) == []
+
+
+def test_client_waits_when_network_drops(tmp_path, monkeypatch):
+    import requests
+    from eis2nostroy.config import load_config
+    from eis2nostroy.eis_client import EisClient
+    cfg_text = (Path(__file__).parents[1] / "config.example.toml").read_text(encoding="utf-8")
+    (tmp_path / "c.toml").write_text(cfg_text.replace("min_interval_sec = 0.75", "min_interval_sec = 0"), encoding="utf-8")
+    cfg = load_config(tmp_path / "c.toml")
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise requests.ConnectionError("proxy down")
+        return "ok"
+    assert EisClient(cfg)._net(flaky) == "ok" and len(calls) == 3

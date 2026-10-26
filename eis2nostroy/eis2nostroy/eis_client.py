@@ -38,6 +38,9 @@ class EisClient:
     def __init__(self, cfg: Config, session: requests.Session | None = None):
         self.cfg = cfg
         self.http = session or requests.Session()
+        # use_system_proxy = false — ходить в ЕИС напрямую, мимо прокси/VPN из настроек Windows
+        if not cfg.eis.get("use_system_proxy", True) and hasattr(self.http, "trust_env"):
+            self.http.trust_env = False
         self._last_call = 0.0
         if not cfg.token:
             log.warning("Токен ЕИС не задан: сервис отдачи информации ответит отказом")
@@ -129,12 +132,12 @@ class EisClient:
     def _post(self, endpoint_law: str, body: str) -> bytes:
         self._throttle()
         token_tag = self.cfg.eis.get("token_header", "individualPerson_token")
-        resp = self.http.post(
+        resp = self._net(lambda: self.http.post(
             self.cfg.endpoint(endpoint_law),
             data=body.encode("utf-8"),
             headers={"Content-Type": "text/xml; charset=utf-8", token_tag: self.cfg.token},
             timeout=self.cfg.eis.get("timeout_sec", 60),
-        )
+        ))
         if resp.status_code != 200:
             raise EisError(f"ЕИС вернул HTTP {resp.status_code}: {resp.text[:300]}")
         return resp.content
@@ -142,6 +145,25 @@ class EisClient:
     def fetch_nsi(self, code: str, dest_dir: Path, law: str = "223") -> list[Path]:
         urls = parse_archive_urls(self._post(law, self.build_nsi_request(code, law)))
         return [self.download_archive(u, dest_dir / f"{code}_{i:03d}.zip") for i, u in enumerate(urls)]
+
+    def _net(self, call):
+        """Запрос с ожиданием при обрыве связи (выключился VPN, пропал интернет).
+
+        Без этого при обрыве модуль быстро «пролистывал» дни с ошибками.
+        Ждём до net_wait_max_min минут (по умолчанию 60), паузы растут до 5 минут.
+        """
+        limit = float(self.cfg.eis.get("net_wait_max_min", 60)) * 60
+        waited, pause = 0.0, 15.0
+        while True:
+            try:
+                return call()
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                if waited >= limit:
+                    raise
+                log.warning("Нет связи с ЕИС (%s). Жду %.0f с и пробую снова.", type(exc).__name__, pause)
+                time.sleep(pause)
+                waited += pause
+                pause = min(pause * 2, 300)
 
     def _throttle(self):
         wait = float(self.cfg.eis.get("min_interval_sec", 1.5)) - (time.monotonic() - self._last_call)
@@ -165,7 +187,7 @@ class EisClient:
         last = None
         for attempt in range(1, retries + 1):
             self._throttle()
-            r = self.http.get(url, headers={token_tag: self.cfg.token}, timeout=120)
+            r = self._net(lambda: self.http.get(url, headers={token_tag: self.cfg.token}, timeout=120))
             if r.status_code == 200 and r.content[:2] == b"PK":
                 dest.write_bytes(r.content)
                 return dest
