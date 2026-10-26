@@ -244,8 +244,8 @@ class EisClient:
             log.warning("Не дождались архивов в %s папках — они будут запрошены заново", len(failed))
         return done
 
-    def prefetch_day(self, feed: Feed, regions: list[str], day: date, errors: list[str] | None = None) -> None:
-        """Заказать архивы за день по всем регионам и скачать их пакетом."""
+    def prefetch_day(self, feed: Feed, regions: list[str], day: date, errors: list[str] | None = None) -> int:
+        """Заказать архивы за день по всем регионам и скачать их пакетом. Возвращает число новых папок."""
         cache = self.cfg.path("cache_dir") or Path("data/cache")
         groups: dict[Path, list[str]] = {}
         for region in regions:
@@ -264,6 +264,7 @@ class EisClient:
                 groups[folder] = urls
         if groups:
             self.download_many(groups)
+        return len(groups)
 
     def prefetch_reestr(self, subsystem: str, numbers: list[str], law: str = "223") -> None:
         """Заказать документы по многим реестровым номерам и скачать их пакетом."""

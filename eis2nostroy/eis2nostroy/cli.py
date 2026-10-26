@@ -176,9 +176,10 @@ def cmd_fetch(cfg: Config, start: date, end: date, newest_first: bool = True,
             before = (found, wins_found, stats.get("lookups", 0))
             if prefetch:
                 # 1) заказать архивы за день по всем регионам и забрать их пакетом
-                client.prefetch_day(feed, regions, day, errors)
+                new_folders = client.prefetch_day(feed, regions, day, errors)
                 # 2) собрать номера закупок для проверки протоколов и тоже забрать пакетом
-                if use_lookup is not None:
+                #    (день, скачанный раньше, уже проверен — его не перебираем дважды)
+                if use_lookup is not None and new_folders:
                     notices: list[str] = []
                     recorder = lambda n: notices.append(n) or []  # noqa: E731
                     for region in regions:
