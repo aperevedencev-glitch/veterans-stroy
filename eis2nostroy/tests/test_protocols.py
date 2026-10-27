@@ -252,3 +252,29 @@ def test_parallel_requests_keep_rate_limit(tmp_path, monkeypatch):
     assert min(gaps) >= 0.045
     # три потока: быстрее, чем по одному (12 × 0.12 = 1.44 с)
     assert t.monotonic() - start < 1.0
+
+
+def test_retry_after_network_error_uses_new_request_id(tmp_path, monkeypatch):
+    """После обрыва связи запрос повторяется с новым index/id (ЕИС отклоняет повтор гуида)."""
+    import re
+    import requests
+    from eis2nostroy.config import load_config
+    from eis2nostroy.eis_client import EisClient
+    cfg_text = (Path(__file__).parents[1] / "config.example.toml").read_text(encoding="utf-8")
+    (tmp_path / "c.toml").write_text(cfg_text.replace("min_interval_sec = 0.75", "min_interval_sec = 0"), encoding="utf-8")
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    ids = []
+
+    class R:
+        status_code, content, text = 200, b"<r/>", ""
+
+    class S:
+        trust_env = True
+        def post(self, url, data, headers, timeout):
+            ids.append(re.search(rb"<id>([^<]+)</id>", data).group(1))
+            if len(ids) == 1:
+                raise requests.ConnectionError("proxy down")
+            return R()
+    client = EisClient(load_config(tmp_path / "c.toml"), session=S())
+    client._post("223", client.build_reestr_request("RI223", "32514550394"))
+    assert len(ids) == 2 and ids[0] != ids[1]

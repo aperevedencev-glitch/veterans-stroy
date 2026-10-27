@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -136,9 +137,11 @@ class EisClient:
     def _post(self, endpoint_law: str, body: str) -> bytes:
         self._throttle()
         token_tag = self.cfg.eis.get("token_header", "individualPerson_token")
+        # при повторе после обрыва связи нужен новый id запроса: повтор с прежним ЕИС отклоняет
+        # («указан неуникальный гуид»)
         resp = self._net(lambda: self.http.post(
             self.cfg.endpoint(endpoint_law),
-            data=body.encode("utf-8"),
+            data=_fresh_id(body).encode("utf-8"),
             headers={"Content-Type": "text/xml; charset=utf-8", token_tag: self.cfg.token},
             timeout=self.cfg.eis.get("timeout_sec", 60),
         ))
@@ -318,6 +321,14 @@ class EisClient:
             folder.mkdir(parents=True, exist_ok=True)
             done.write_text(datetime.now().isoformat())
         return paths
+
+
+_ID_RE = re.compile(r"<id>[^<]*</id>")
+
+
+def _fresh_id(body: str) -> str:
+    """Новый глобальный идентификатор запроса (index/id) для каждой отправки."""
+    return _ID_RE.sub(f"<id>{uuid.uuid4()}</id>", body, count=1)
 
 
 def _local(tag: str) -> str:
