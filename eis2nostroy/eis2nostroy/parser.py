@@ -45,6 +45,37 @@ def _first_text(el: ET.Element, names: tuple[str, ...]) -> str:
     return ""
 
 
+# длина реестрового номера договора: 44-ФЗ — 19 цифр, 223-ФЗ — 23; у заказчика в 44-ФЗ код из 11 цифр
+REG_LEN = {"44": 19, "223": 23}
+OWNER_BLOCKS = ("customer", "placer", "organization", "supplier", "participant", "contractor", "executor")
+
+
+def _reg_number(root: ET.Element, law: str) -> str:
+    """Реестровый номер именно договора, а не код заказчика из вложенного блока."""
+    parent = {c: p for p in root.iter() for c in p}
+    cands = []
+    for e in root.iter():
+        if _local(e.tag) in REG_NUM and e.text and e.text.strip():
+            t = e.text.strip()
+            owner, x = False, parent.get(e)
+            while x is not None:
+                if any(k in _local(x.tag) for k in OWNER_BLOCKS):
+                    owner = True
+                    break
+                x = parent.get(x)
+            cands.append((t, owner))
+    if not cands:
+        return ""
+    want = REG_LEN.get(str(law).replace("-ФЗ", "").replace("fz", ""))
+    for pick in (lambda t, o: not o and want and len(t) == want and t.isdigit(),
+                 lambda t, o: want and len(t) == want and t.isdigit(),
+                 lambda t, o: not o):
+        for t, o in cands:
+            if pick(t, o):
+                return t
+    return max((t for t, _ in cands), key=len)
+
+
 def _inns_in(el: ET.Element) -> list[str]:
     return [e.text.strip() for e in el.iter() if _local(e.tag) == "inn" and e.text and e.text.strip()]
 
@@ -124,7 +155,7 @@ def parse_contract_xml(data: bytes, law: str, member_inns: set[str], raw_file: s
             source=f"eis_{law}",
             law=law,
             supplier_inn=inn,
-            reg_number=_first_text(root, REG_NUM),
+            reg_number=_reg_number(root, law),
             notice_number=_first_text(root, NOTICE_NUM),
             customer_inn=customer_inn,
             customer_name=customer_name,

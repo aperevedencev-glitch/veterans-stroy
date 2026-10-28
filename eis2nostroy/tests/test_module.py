@@ -250,3 +250,20 @@ def test_end_to_end(tmp_path, monkeypatch):
     # неконкурентный договор 223-ФЗ уже есть в реестре НОСТРОЙ
     allrows = [r for r in wb["Все записи"].iter_rows(min_row=5, values_only=True) if r[0]]
     assert sorted(r[0] for r in allrows) == sorted([CONFIRMED, PROBABLE, IN_NOSTROY])
+
+
+def test_reg_number_not_customer_code():
+    """В реальных выгрузках блок заказчика с regNum (11 цифр) идёт раньше номера договора."""
+    from eis2nostroy.parser import parse_contract_xml
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<export xmlns="http://zakupki.gov.ru/oos/export/1" xmlns:oos="http://zakupki.gov.ru/oos/types/1">
+ <contract>
+  <oos:customer><oos:regNum>01483000300</oos:regNum><oos:fullName>Администрация</oos:fullName><oos:inn>5004003890</oos:inn></oos:customer>
+  <oos:regNum>3500400389026000033</oos:regNum>
+  <oos:signDate>2026-03-23</oos:signDate>
+  <oos:priceInfo><oos:price>100.00</oos:price></oos:priceInfo>
+  <oos:suppliers><oos:supplier><oos:legalEntityRF><oos:INN>5004023657</oos:INN></oos:legalEntityRF></oos:supplier></oos:suppliers>
+ </contract>
+</export>""".encode()
+    cs = parse_contract_xml(xml, "44", {"5004023657"})
+    assert cs and cs[0].reg_number == "3500400389026000033"
